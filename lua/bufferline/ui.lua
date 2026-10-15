@@ -30,6 +30,19 @@ local padding = constants.padding
 local render_tab_size = nil
 --- Whether the current render forces equal-width tabs (set by M.tabline).
 local render_regular = nil
+--- Buffer ids that get one extra column this render, so the tabs fill the
+--- window exactly instead of leaving a growing gap before the right edge.
+local render_plus = nil
+
+---Effective width for a single tab this render (base + fill remainder).
+---@param tab bufferline.TabElement?
+---@return integer?
+local function tab_width(tab)
+  local base = render_tab_size
+  if base == nil then return nil end
+  if render_plus and tab and tab.id and render_plus[tab.id] then return base + 1 end
+  return base
+end
 
 local components = {
   id = {
@@ -215,14 +228,15 @@ local function add_space(ctx, length)
   local left_size, right_size = 0, 0
   local icon = options.buffer_close_icon
   -- pad each tab smaller than the max tab size to make it consistent
-  local base_size = render_tab_size
+  local base_size = tab_width(ctx.tab)
   if not base_size then
     base_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length
   end
   local difference = base_size - length
   if difference > 0 then
     local size = math.floor(difference / 2)
-    left_size, right_size = size + left_size, size + right_size
+    -- give the odd remainder to the right so the tab always reaches base_size
+    left_size, right_size = size + left_size, difference - size + right_size
   end
   if not options.show_buffer_close_icons then
     right_size = right_size > 0 and right_size - strwidth(icon) or right_size
@@ -408,7 +422,7 @@ local function get_max_length(context)
   local padding_size = strwidth(padding) * 2
   local max_length = options.max_name_length
 
-  local tab_size = render_tab_size
+  local tab_size = tab_width(context.tab)
   if not tab_size then tab_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length end
   local enforce = render_regular
   if enforce == nil then
@@ -791,9 +805,11 @@ M.resolve_tab_size = resolve_tab_size
 ---Pass `nil` to fall back to `options.tab_size`.
 ---@param size integer?
 ---@param regular boolean?
-function M.set_render_tab_size(size, regular)
+---@param plus table<integer, boolean>? buffer ids that get one extra column
+function M.set_render_tab_size(size, regular, plus)
   render_tab_size = size
   render_regular = regular
+  render_plus = plus
 end
 
 if utils.is_test() then

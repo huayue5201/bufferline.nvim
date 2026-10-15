@@ -57,29 +57,6 @@ local function bufferline()
   local tab_indicators = tabpages.get()
   local function build() return is_tabline and tabpages.get_components(state) or buffers.get_components(state) end
 
-  local components
-  if options.tab_size == "auto" or type(options.tab_size) == "function" then
-    -- The per-tab fixed overhead (icons, numbers, diagnostics, separators) is only
-    -- known once components exist, so probe at a known width first, then rebuild at
-    -- the width that lets every tab fill the window without being dropped.
-    local probe = options.max_name_length
-    ui.set_render_tab_size(probe, true)
-    local measured = build()
-    local count, total = 0, 0
-    for _, component in ipairs(measured) do
-      if not component.hidden then
-        count = count + 1
-        total = total + component.length
-      end
-    end
-    local size, regular = ui.resolve_tab_size(options, ui.available_width(tab_indicators), count, total - probe * count)
-    ui.set_render_tab_size(size, regular)
-    components = build()
-  else
-    ui.set_render_tab_size(nil, nil)
-    components = build()
-  end
-
   -- NOTE: keep track of the previous state so it can be used for sorting
   -- specifically to position newly opened buffers next to the buffer that was previously open
   local prev_idx, prev_components = state.current_element_index, state.components
@@ -92,10 +69,83 @@ local function bufferline()
     })
   end
 
+  ---Build and arrange components exactly like the final render will, so sizes
+  ---can be measured on the real list (including group markers).
+  local function assemble()
+    local list = build()
+    return not is_tabline and groups.render(list, sorter) or sorter(list)
+  end
+
+  ---Width of a fully assembled list, split into tab width (which scales with
+  ---the tab size) and fixed chrome such as group start/end markers.
+  ---@param list bufferline.Component[]
+  ---@return integer count, integer tabs, integer fixed
+  local function measure(list)
+    local count, tabs, fixed = 0, 0, 0
+    for _, component in ipairs(list) do
+      if not component.hidden then
+        if component.name then
+          count = count + 1
+          tabs = tabs + component.length
+        else
+          fixed = fixed + component.length
+        end
+      end
+    end
+    return count, tabs, fixed
+  end
+
+  local components
+  if options.tab_size == "auto" then
+    local available = ui.available_width(tab_indicators)
+    -- Probe at a known width to learn each tab's fixed chrome (numbers, icons,
+    -- separators, group markers), since it is only observable once built.
+    local probe = options.max_name_length
+    ui.set_render_tab_size(probe, true)
+    local count, tabs, fixed = measure(assemble())
+    local size = ui.resolve_tab_size(options, available - fixed, count, tabs - probe * count)
+    -- The estimate can be a column or two off (odd padding, duplicate prefixes,
+    -- group markers). Shrink until the real, fully assembled tabline fits so we
+    -- never fall into the truncate() path that hides whole tabs.
+    for _ = 1, 32 do
+      if size <= 1 then break end
+      ui.set_render_tab_size(size, true)
+      local _, t, f = measure(assemble())
+      if t + f <= available then break end
+      size = size - 1
+    end
+    -- Spread the leftover columns across the leading tabs so the tabs fill the
+    -- bar exactly instead of leaving a gap that grows with the tab count.
+    ui.set_render_tab_size(size, true)
+    local _, t, f = measure(assemble())
+    local remainder = available - (t + f)
+    local plus = {}
+    if remainder > 0 then
+      for _, component in ipairs(assemble()) do
+        if remainder <= 0 then break end
+        if not component.hidden and component.id and component.name then
+          plus[component.id] = true
+          remainder = remainder - 1
+        end
+      end
+    end
+    ui.set_render_tab_size(size, true, next(plus) and plus or nil)
+    components = assemble()
+  elseif type(options.tab_size) == "function" then
+    local probe = options.max_name_length
+    ui.set_render_tab_size(probe, true)
+    local count = measure(assemble())
+    local size, regular = ui.resolve_tab_size(options, ui.available_width(tab_indicators), count)
+    ui.set_render_tab_size(size, regular)
+    components = assemble()
+  else
+    ui.set_render_tab_size(nil, nil)
+    components = assemble()
+  end
+
   local _, current_idx = utils.find(function(component) return component:current() end, components)
 
   state.set({ current_element_index = current_idx })
-  components = not is_tabline and groups.render(components, sorter) or sorter(components)
   local tabline = ui.tabline(components, tab_indicators)
 
   state.set({

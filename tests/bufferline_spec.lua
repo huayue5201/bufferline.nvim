@@ -76,6 +76,29 @@ describe("Bufferline tests:", function()
       assert.truthy(tabline)
       assert.truthy(tabline:match("TEST"))
     end)
+
+    it("should fill the tabline exactly and never hide tabs in auto mode", function()
+      bufferline.setup({
+        options = {
+          tab_size = "auto",
+          enforce_regular_tabs = true,
+          numbers = "both",
+          show_buffer_icons = false,
+          show_buffer_close_icons = true,
+        },
+      })
+      for i = 1, 5 do
+        vim.cmd("edit auto-fill-" .. i .. ".txt")
+      end
+      nvim_bufferline()
+      local ui = require("bufferline.ui")
+      local total = 0
+      for _, component in ipairs(state.visible_components) do
+        total = total + component.length
+      end
+      assert.is.equal(ui.available_width({}), total)
+      assert.is.equal(#state.components, #state.visible_components)
+    end)
   end)
 
   describe("Snapshots - ", function()
