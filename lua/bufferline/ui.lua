@@ -215,7 +215,11 @@ local function add_space(ctx, length)
   local left_size, right_size = 0, 0
   local icon = options.buffer_close_icon
   -- pad each tab smaller than the max tab size to make it consistent
-  local difference = (render_tab_size or options.tab_size) - length
+  local base_size = render_tab_size
+  if not base_size then
+    base_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length
+  end
+  local difference = base_size - length
   if difference > 0 then
     local size = math.floor(difference / 2)
     left_size, right_size = size + left_size, size + right_size
@@ -403,8 +407,14 @@ local function get_max_length(context)
   local padding_size = strwidth(padding) * 2
   local max_length = options.max_name_length
 
-  local tab_size = render_tab_size or options.tab_size
-  local enforce = render_regular or options.enforce_regular_tabs
+  local tab_size = render_tab_size
+  if not tab_size then
+    tab_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length
+  end
+  local enforce = render_regular
+  if enforce == nil then
+    enforce = options.enforce_regular_tabs or options.tab_size == "auto" or type(options.tab_size) == "function"
+  end
 
   local autosize = not options.truncate_names and not enforce
   local name_size = strwidth(context.tab.name)
