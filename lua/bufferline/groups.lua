@@ -154,7 +154,9 @@ local function persist_pinned_buffers()
   end
 
   if #pinned == 0 then
-    vim.g[PINNED_KEY] = ""
+    -- unlet rather than storing an empty string so `:mksession` does not persist
+    -- a value that the restore logic would later treat as a real path (#1037)
+    vim.g[PINNED_KEY] = nil
   else
     vim.g[PINNED_KEY] = table.concat(pinned, ",")
   end
@@ -243,7 +245,9 @@ end
 --- to the manual_groupings table.
 local function restore_pinned_buffers()
   local pinned = vim.g[PINNED_KEY]
-  if not pinned then return end
+  -- an empty string is not a valid list and `fn.bufnr("")` resolves to the
+  -- current buffer, which would pin it on restore (#1037)
+  if not pinned or pinned == "" then return end
   local manual_groupings = vim.split(pinned, ",") or {}
   for _, path in ipairs(manual_groupings) do
     local buf_id = fn.bufnr(path --[[@as integer]])

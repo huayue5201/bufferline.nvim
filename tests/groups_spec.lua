@@ -1,3 +1,4 @@
+local fmt = string.format
 local utils = require("tests.utils")
 
 local Buffer = utils.MockBuffer
@@ -15,6 +16,7 @@ describe("Group tests - ", function()
     package.loaded["bufferline.groups"] = nil
     package.loaded["bufferline.state"] = nil
     package.loaded["bufferline.config"] = nil
+    package.loaded["bufferline.commands"] = nil
     groups = require("bufferline.groups")
     bufferline = require("bufferline")
     state = require("bufferline.state")
@@ -249,5 +251,44 @@ describe("Group tests - ", function()
     local buf = utils.find_buffer("dummy-1.txt", state)
     local group = buf and groups.get_manual_group(buf)
     assert.is_truthy(group and group:match("pinned"))
+  end)
+
+  it("should not pin the current buffer when the saved pinned list is empty (#1037)", function()
+    groups.setup({ options = {} })
+    local current = vim.api.nvim_get_current_buf()
+    vim.g.BufferlinePinnedBuffers = ""
+    vim.api.nvim_exec_autocmds("SessionLoadPost", {})
+    assert.is_nil(groups.state.manual_groupings[current])
+    vim.g.BufferlinePinnedBuffers = nil
+  end)
+
+  it("should cycle into a collapsed group and reveal it (#980)", function()
+    vim.o.hidden = true
+    vim.g.BufferlinePinnedBuffers = nil
+    vim.cmd("silent! %bwipeout!")
+    bufferline.setup({ options = { groups = { options = { toggle_hidden_on_enter = true } } } })
+    local ids = {}
+    for i = 1, 3 do
+      vim.cmd("enew")
+      ids[i] = vim.api.nvim_get_current_buf()
+      vim.api.nvim_buf_set_name(ids[i], fmt("bl980_%d.txt", i))
+      vim.api.nvim_buf_set_lines(ids[i], 0, -1, false, { "a" })
+    end
+
+    vim.api.nvim_set_current_buf(ids[1])
+    nvim_bufferline()
+    groups.toggle_pin()
+    nvim_bufferline()
+    groups.set_hidden("pinned", true)
+    nvim_bufferline()
+
+    -- move to an ungrouped buffer and cycle back towards the hidden pinned one
+    vim.api.nvim_set_current_buf(ids[2])
+    nvim_bufferline()
+    vim.cmd("BufferLineCyclePrev")
+
+    assert.equals(ids[1], vim.api.nvim_get_current_buf())
+    assert.is_false(groups.get_by_id("pinned").hidden)
+    vim.cmd("silent! %bwipeout!")
   end)
 end)

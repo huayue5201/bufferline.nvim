@@ -10,17 +10,6 @@ local api = vim.api
 local fn = vim.fn
 local padding = constants.padding
 
-local t = {
-  LEAF = "leaf",
-  ROW = "row",
-  COLUMN = "col",
-}
-
-local supported_win_types = {
-  [t.LEAF] = true,
-  [t.COLUMN] = true,
-}
-
 ---Format the content of a neighbouring offset's text
 ---@param size integer
 ---@param highlight table<string, string>
@@ -80,57 +69,51 @@ local function guess_window_highlight(win_id, attribute, match)
   return match
 end
 
---- This helper checks to see if bufferline supports creating an offset for the given layout
---- Valid window layouts can be
---- * A list of full height splits in a row:
---- `{'row', ['leaf', id], ['leaf', id]}`
---- * A row of splits where one on either edge is not full height but the matching
---- split is on the top:
---- e.g. the vertical tool bar is split in two such as for undo tree
---- `{'row', ['col', ['leaf', id], ['leaf', id]], ['leaf', id]}`
----
----@param windows any[]
----@return boolean, number
-local function is_valid_layout(windows)
-  local win_type, win_id = windows[1], windows[2]
-  if utils.is_list(win_id) and win_type == t.COLUMN then win_id = win_id[1][2] end
-  return supported_win_types[win_type] and type(win_id) == "number", win_id
-end
-
---- Test if the windows within a layout row contain the correct panel buffer
---- NOTE: this only tests the first and last windows as those are the only
---- ones that it makes sense to add a panel for
----@param windows any[]
----@param offset table
----@return boolean
----@return number?
----@return boolean?
-local function is_offset_section(windows, offset)
-  local wins = { windows[1] }
-  if #windows > 1 then wins[#wins + 1] = windows[#windows] end
-  for idx, win in ipairs(wins) do
-    local valid_layout, win_id = is_valid_layout(win)
-    if valid_layout then
-      local buf = api.nvim_win_get_buf(win_id)
-      local valid = buf and vim.bo[buf].filetype == offset.filetype
-      local is_left = idx == 1
-      if valid then return valid, win_id, is_left end
+--- Collect the current tab's normal windows grouped into columns. Windows
+--- stacked vertically (horizontal splits) share a column, which is what an
+--- offset is drawn against.
+---@return table[]
+local function get_columns()
+  local tabpage = api.nvim_get_current_tabpage()
+  local columns, seen = {}, {}
+  for _, win_id in ipairs(api.nvim_tabpage_list_wins(tabpage)) do
+    if api.nvim_win_get_config(win_id).relative == "" then
+      local info = fn.getwininfo(win_id)[1]
+      if info then
+        local key = string.format("%d:%d", info.wincol, info.width)
+        local column = seen[key]
+        if not column then
+          column = { wincol = info.wincol, width = info.width, windows = {} }
+          seen[key] = column
+          columns[#columns + 1] = column
+        end
+        column.windows[#column.windows + 1] = win_id
+      end
     end
   end
-  return false, nil, nil
+  table.sort(columns, function(a, b) return a.wincol < b.wincol end)
+  return columns
 end
 
---- Iterate over COLUMN layout by always picking the first element.
---- Assuming this is the topmost window, it's the one that should
---- dictate the tabline offset.
----@param layout any[]
----@return any[]
-local function iterate_col_layout(layout)
-  if layout[1] == t.COLUMN then
-    return iterate_col_layout(layout[2][1])
-  else
-    return layout
+--- Find the window that should back an offset. Only the leftmost and rightmost
+--- columns can carry an offset, but the matching buffer may live in any window
+--- of that column (e.g. a panel that is itself split horizontally) (#789).
+---@param offset table
+---@param columns table[]
+---@return number?, boolean?
+local function find_offset_window(offset, columns)
+  local last = #columns
+  if last < 2 then return nil, nil end
+  for index, column in ipairs(columns) do
+    local is_left = index == 1
+    if is_left or index == last then
+      for _, win_id in ipairs(column.windows) do
+        local buf = api.nvim_win_get_buf(win_id)
+        if buf and vim.bo[buf].filetype == offset.filetype then return win_id, is_left end
+      end
+    end
   end
+  return nil, nil
 end
 
 ---@class OffsetData
@@ -152,27 +135,24 @@ function M.get()
   local sep_hl = highlights.hl(hls.offset_separator.hl_group)
 
   if offsets and #offsets > 0 then
-    local layout = iterate_col_layout(fn.winlayout())
+    local columns = get_columns()
 
     for _, offset in ipairs(offsets) do
-      -- don't bother proceeding if there are no vertical splits
-      if layout[1] == t.ROW then
-        local is_valid, win_id, is_left = is_offset_section(layout[2], offset)
-        if is_valid and win_id then
-          local width = api.nvim_win_get_width(win_id) + (offset.padding or 0)
+      local win_id, is_left = find_offset_window(offset, columns)
+      if win_id then
+        local width = api.nvim_win_get_width(win_id) + (offset.padding or 0)
 
-          local hl_name = offset.highlight or guess_window_highlight(win_id) or config.highlights.fill.hl_group
+        local hl_name = offset.highlight or guess_window_highlight(win_id) or config.highlights.fill.hl_group
 
-          local hl = highlights.hl(hl_name)
-          local component = get_section_text(width, { text = hl, sep = sep_hl }, offset, is_left)
+        local hl = highlights.hl(hl_name)
+        local component = get_section_text(width, { text = hl, sep = sep_hl }, offset, is_left)
 
-          total_size = total_size + width
+        total_size = total_size + width
 
-          if is_left then
-            left, left_size = component, left_size + width
-          else
-            right, right_size = component, right_size + width
-          end
+        if is_left then
+          left, left_size = component, left_size + width
+        else
+          right, right_size = component, right_size + width
         end
       end
     end

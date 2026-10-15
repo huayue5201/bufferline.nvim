@@ -15,6 +15,7 @@ local M = {}
 
 local fmt = string.format
 local api = vim.api
+local fn = vim.fn
 
 --- open the current element
 ---@param id number
@@ -22,7 +23,24 @@ local function open_element(id)
   if config:is_tabline() and api.nvim_tabpage_is_valid(id) then
     api.nvim_set_current_tabpage(id)
   elseif api.nvim_buf_is_valid(id) then
+    -- A buffer shown in a window that has never displayed it before starts on
+    -- line 1. If the buffer is already visible in another window use that
+    -- window's cursor, otherwise fall back to Neovim's remembered position,
+    -- and restore it so that cycling keeps the cursor (#1023).
+    local target_line
+    local windows = fn.win_findbuf(id)
+    if #windows > 0 then
+      local ok, cursor = pcall(api.nvim_win_get_cursor, windows[1])
+      if ok then target_line = cursor[1] end
+    else
+      local info = fn.getbufinfo(id)[1]
+      target_line = info and info.lnum or nil
+    end
+
     api.nvim_set_current_buf(id)
+    if target_line and target_line > 1 and api.nvim_win_get_cursor(0)[1] == 1 then
+      pcall(api.nvim_win_set_cursor, 0, { target_line, 0 })
+    end
   end
 end
 
@@ -192,28 +210,46 @@ function M.move(direction)
   M.move_to(next_index, index)
 end
 
+---Elements that can be reached by cycling, including buffers inside closed
+---groups so that cycling can enter them (#980). Group markers are skipped.
+---@return bufferline.Component[]
+local function cycle_targets()
+  local targets = {}
+  for _, item in ipairs(state.__components) do
+    if item.focusable ~= false and item:as_element() then table.insert(targets, item) end
+  end
+  return targets
+end
+
 --- @param direction number
 function M.cycle(direction)
   if vim.opt.showtabline == 0 then
     if direction > 0 then vim.cmd("bnext") end
     if direction < 0 then vim.cmd("bprev") end
   end
-  local index = M.get_current_element_index(state)
-  if not index then return end
-  local length = #state.components
-  local next_index = index + direction
 
-  if next_index <= length and next_index >= 1 then
-    next_index = index + direction
-  elseif index + direction <= 0 then
-    next_index = length
-  else
+  local elements = cycle_targets()
+  local length = #elements
+  if length == 0 then return end
+
+  local _, index = utils.find(function(item) return item.id == get_current_element() end, elements)
+  if not index then return end
+
+  local next_index = index + direction
+  if next_index > length then
     next_index = 1
+  elseif next_index < 1 then
+    next_index = length
   end
 
-  local item = state.components[next_index]
+  local item = elements[next_index]
   if not item then return utils.notify(fmt("This %s does not exist", item.type), "error") end
   open_element(item.id)
+  -- reveal the target's group if it was collapsed, then close any groups the
+  -- user configured to auto-close when leaving them (#980)
+  if item.hidden and item.group then groups.set_hidden(item.group, false) end
+  groups.handle_group_enter()
+  ui.refresh()
 end
 
 function M.get_elements()
