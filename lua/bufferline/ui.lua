@@ -288,18 +288,33 @@ local function get_separator(focused, style)
   return focused and chars[1] or chars[2]
 end
 
+---Constant width reserved for the per-tab modified/close button slot. Keeping it
+---fixed means toggling the modified flag or revealing the close button on hover
+---never changes a tab's width (which would shift the whole tabline).
+---@param options bufferline.Options
+---@return integer
+local function button_width(options)
+  local modified = strwidth(options.modified_icon)
+  if not options.show_buffer_close_icons then return modified end
+  return math.max(modified, strwidth(options.buffer_close_icon))
+end
+
 --- @param buf_id number
 --- @return bufferline.Segment?
 local function get_close_icon(buf_id, context)
   local options = config.options
-  if options.hover.enabled and not context.tab:current() and vim.tbl_contains(options.hover.reveal, "close") then
-    if not state.hovered or state.hovered.id ~= context.tab.id then return end
-  end
-  local buffer_close_icon = options.buffer_close_icon
-  local close_button_hl = context.current_highlights.close_button
   if not options.show_buffer_close_icons then return end
+  local close_str = options.buffer_close_icon
+  if options.hover.enabled and not context.tab:current() and vim.tbl_contains(options.hover.reveal, "close") then
+    if not state.hovered or state.hovered.id ~= context.tab.id then
+      -- keep the reserved slot while hidden so revealing it on hover does not resize the tab
+      return { text = string.rep(padding, button_width(options)) }
+    end
+  end
+  local close_button_hl = context.current_highlights.close_button
+  local lead = string.rep(padding, button_width(options) - strwidth(close_str))
   return M.make_clickable("handle_close", buf_id, {
-    text = buffer_close_icon,
+    text = lead .. close_str,
     highlight = close_button_hl,
   })
 end
@@ -349,12 +364,14 @@ end
 local function add_suffix(context)
   local element = context.tab
   local hl = context.current_highlights
-  local symbol = config.options.modified_icon
+  local options = config.options
+  local symbol = options.modified_icon
+  local slot = button_width(options)
   -- If the buffer is modified add an icon, if it isn't pad
-  -- the buffer so it doesn't "jump" when it becomes modified i.e. due
-  -- to the sudden addition of a new character
+  -- the buffer so it doesn't "jump" when it becomes modified i.e.
+  -- due to the sudden addition of a new character
   local modified = {
-    text = element.modified and symbol or string.rep(padding, strwidth(symbol)),
+    text = element.modified and (symbol .. string.rep(padding, slot - strwidth(symbol))) or string.rep(padding, slot),
     highlight = element.modified and hl.modified or nil,
   }
   local close = get_close_icon(element.id, context)
@@ -384,7 +401,6 @@ end
 ---@param context bufferline.RenderContext
 ---@return number
 local function get_max_length(context)
-  local modified = config.options.modified_icon
   local options = config.options
   local element = context.tab
   local icon_size = strwidth(element.icon)
@@ -405,7 +421,7 @@ local function get_max_length(context)
   if not enforce then return max_length end
   -- estimate the maximum allowed size of a filename given that it will be
   -- padded and prefixed with a file icon
-  return tab_size - strwidth(modified) - icon_size - padding_size
+  return tab_size - button_width(options) - icon_size - padding_size
 end
 
 ---@param ctx bufferline.RenderContext
