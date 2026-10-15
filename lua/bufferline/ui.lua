@@ -745,25 +745,13 @@ function M.tabline(items, tab_indicators)
   local right_align = { { highlight = hl.fill.hl_group, text = "%=" } }
 
   local tab_close_button = get_tab_close_button(options, hl)
-  local tab_close_button_length = get_component_size(tab_close_button)
+  local tab_indicator_segments = get_tab_indicator(tab_indicators, options)
+  local offsets = offset.get()
+  local _, left_area, right_area = custom_area.get()
+  local available_width = M.available_width(tab_indicators)
 
-  local tab_indicator_segments, tab_indicator_length = get_tab_indicator(tab_indicators, options)
-
-  -- NOTE: this estimates the size of the truncation marker as we don't know how big it will be yet
   local left_trunc_icon = options.left_trunc_marker
   local right_trunc_icon = options.right_trunc_marker
-  local max_padding = string.rep(padding, 2)
-  local left_element_size = utils.measure(max_padding, left_trunc_icon, max_padding)
-  local right_element_size = utils.measure(max_padding, right_trunc_icon, max_padding)
-
-  local offsets = offset.get()
-  local custom_area_size, left_area, right_area = custom_area.get()
-
-  local available_width = vim.o.columns
-    - custom_area_size
-    - offsets.total_size
-    - tab_indicator_length
-    - tab_close_button_length
 
   local before, current, after = get_sections(items)
   local segments, marker, visible_components
@@ -777,11 +765,13 @@ function M.tabline(items, tab_indicators)
     end
     marker = { left_count = 0, right_count = 0 }
   else
+    -- NOTE: this estimates the size of the truncation marker as we don't know how big it will be yet
+    local max_padding = string.rep(padding, 2)
     segments, marker, visible_components = truncate(before, current, after, available_width, {
       left_count = 0,
       right_count = 0,
-      left_element_size = left_element_size,
-      right_element_size = right_element_size,
+      left_element_size = utils.measure(max_padding, left_trunc_icon, max_padding),
+      right_element_size = utils.measure(max_padding, right_trunc_icon, max_padding),
     })
   end
 
