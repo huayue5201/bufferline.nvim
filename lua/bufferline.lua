@@ -138,12 +138,16 @@ local function setup_autocommands(conf)
       highlights.set_all(config.update_highlights())
     end,
   })
+  api.nvim_create_autocmd("TabClosed", {
+    group = BUFFERLINE_GROUP,
+    callback = function() state.prune_custom_sorts() end,
+  })
   if not options or vim.tbl_isempty(options) then return end
   if options.persist_buffer_sort then
     api.nvim_create_autocmd("SessionLoadPost", {
       pattern = "*",
       group = BUFFERLINE_GROUP,
-      callback = function() state.custom_sort = utils.restore_positions() end,
+      callback = function() state.set({ custom_sort = utils.restore_positions() }) end,
     })
   end
   if not options.always_show_bufferline then
@@ -193,7 +197,11 @@ local function setup_commands()
   command("BufferLineSortByDirectory", function() M.sort_by("directory") end)
   command("BufferLineSortByRelativeDirectory", function() M.sort_by("relative_directory") end)
   command("BufferLineSortByTabs", function() M.sort_by("tabs") end)
-  command("BufferLineGoToBuffer", function(opts) M.go_to(opts.args) end, { nargs = 1 })
+  -- go to a buffer by its position in the *full* component list (the ordinal
+  -- shown in the tabline), so pinned/collapsed groups and tabs that overflow the
+  -- window width do not shift the number <n> refers to. Previously this used
+  -- `state.visible_components`, making <n> count only the currently visible tabs.
+  command("BufferLineGoToBuffer", function(opts) M.go_to(opts.args, true) end, { nargs = 1 })
   command("BufferLineTogglePin", function() groups.toggle_pin() end, { nargs = 0 })
   command("BufferLineTabRename", function(opts) M.rename_tab(opts.fargs) end, { nargs = "*" })
   command("BufferLineGroupClose", function(opts) groups.action(opts.args, "close") end, {

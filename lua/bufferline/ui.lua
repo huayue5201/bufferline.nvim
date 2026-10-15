@@ -383,12 +383,13 @@ end
 --- @param context bufferline.RenderContext
 --- @return bufferline.Segment?, bufferline.Segment
 local function add_separators(context)
-  local hl = config.highlights
   local options = config.options
   local style = options.separator_style
   local focused = context.tab:current() or context.tab:visible()
   local right_sep, left_sep = get_separator(focused, style)
-  local sep_hl = is_slant(style) and context.current_highlights.separator or hl.separator.hl_group
+  -- Always use the state-aware highlight so `separator_selected`/
+  -- `separator_visible` apply to non-slant styles (thin/thick) too, not just slants.
+  local sep_hl = context.current_highlights.separator
 
   local left_separator = left_sep and { text = left_sep, highlight = sep_hl } or nil
   local right_separator = { text = right_sep, highlight = sep_hl }

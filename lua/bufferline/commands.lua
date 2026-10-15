@@ -160,7 +160,7 @@ function M.move_to(to_index, from_index)
     local destination_buf = state.components[next_index]
     state.components[next_index] = item
     state.components[index] = destination_buf
-    state.custom_sort = utils.get_ids(state.components)
+    state.set({ custom_sort = utils.get_ids(state.components) })
     local opts = config.options
     if opts.persist_buffer_sort then utils.save_positions(state.custom_sort) end
     ui.refresh()
@@ -259,7 +259,7 @@ end
 function M.sort_by(sort_by)
   if next(state.components) == nil then return utils.notify("Unable to find elements to sort, sorry", "warn") end
   sorters.sort(state.components, { sort_by = sort_by })
-  state.custom_sort = utils.get_ids(state.components)
+  state.set({ custom_sort = utils.get_ids(state.components) })
   local opts = config.options
   if opts.persist_buffer_sort then utils.save_positions(state.custom_sort) end
   ui.refresh()
