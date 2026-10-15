@@ -53,7 +53,32 @@ local M = {
 --- @return string, bufferline.Segment[][]
 local function bufferline()
   local is_tabline = config:is_tabline()
-  local components = is_tabline and tabpages.get_components(state) or buffers.get_components(state)
+  local options = config.options
+  local tab_indicators = tabpages.get()
+  local function build() return is_tabline and tabpages.get_components(state) or buffers.get_components(state) end
+
+  local components
+  if options.tab_size == "auto" or type(options.tab_size) == "function" then
+    -- The per-tab fixed overhead (icons, numbers, diagnostics, separators) is only
+    -- known once components exist, so probe at a known width first, then rebuild at
+    -- the width that lets every tab fill the window without being dropped.
+    local probe = options.max_name_length
+    ui.set_render_tab_size(probe, true)
+    local measured = build()
+    local count, total = 0, 0
+    for _, component in ipairs(measured) do
+      if not component.hidden then
+        count = count + 1
+        total = total + component.length
+      end
+    end
+    local size, regular = ui.resolve_tab_size(options, ui.available_width(tab_indicators), count, total - probe * count)
+    ui.set_render_tab_size(size, regular)
+    components = build()
+  else
+    ui.set_render_tab_size(nil, nil)
+    components = build()
+  end
 
   -- NOTE: keep track of the previous state so it can be used for sorting
   -- specifically to position newly opened buffers next to the buffer that was previously open
@@ -71,7 +96,7 @@ local function bufferline()
 
   state.set({ current_element_index = current_idx })
   components = not is_tabline and groups.render(components, sorter) or sorter(components)
-  local tabline = ui.tabline(components, tabpages.get())
+  local tabline = ui.tabline(components, tab_indicators)
 
   state.set({
     --- store the full unfiltered lists

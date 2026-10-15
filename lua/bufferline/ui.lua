@@ -255,30 +255,22 @@ local function is_slant(style)
   return vim.tbl_contains({ sep_names.slant, sep_names.padded_slant, sep_names.slope, sep_names.padded_slope }, style)
 end
 
---- Horizontal overhead a tab adds besides the content (the tab separator).
---- @param style string | {[1]: string, [2]: string}
---- @return integer
-local function separator_overhead(style)
-  if type(style) == "table" then return strwidth(style[1]) + strwidth(style[2]) end
-  local chars = sep_chars[style] or sep_chars.thin
-  if is_slant(style) then return strwidth(chars[1]) + strwidth(chars[2]) end
-  return strwidth(chars[1])
-end
-
---- Compute the tab width for this render.
+--- Resolve the effective tab width for a render.
 --- `options.tab_size` may be a number, "auto" (fill the window), or a function.
+--- `total_extra` is the sum over visible tabs of the width each tab spends
+--- outside the padded name block (icons, numbers, diagnostics, separators).
 --- @param options bufferline.Options
 --- @param available_width integer
 --- @param count integer number of visible tabs
+--- @param total_extra? integer
 --- @return integer width
 --- @return boolean regular whether tabs should be forced to equal width
-local function resolve_tab_size(options, available_width, count)
+local function resolve_tab_size(options, available_width, count, total_extra)
   local tab_size = options.tab_size
   if type(tab_size) == "function" then return tab_size(available_width, count), true end
   if tab_size ~= "auto" then return tab_size, options.enforce_regular_tabs end
   if count <= 0 then return options.max_name_length, true end
-  local overhead = separator_overhead(options.separator_style)
-  local size = math.floor((available_width - count * overhead) / count)
+  local size = math.floor((available_width - (total_extra or 0)) / count)
   if options.min_tab_size and options.min_tab_size > 0 then size = math.max(size, options.min_tab_size) end
   if options.max_tab_size and options.max_tab_size > 0 then size = math.min(size, options.max_tab_size) end
   return math.max(size, 1), true
@@ -684,6 +676,24 @@ end
 ---@field segments bufferline.Segment[][]
 ---@field visible_components bufferline.TabElement[]
 
+---Width available to the tabs: window width minus custom areas, tab indicators
+---and the tab close button.
+---@param tab_indicators bufferline.Segment[]
+---@return integer
+function M.available_width(tab_indicators)
+  local options = config.options
+  local hl = config.highlights
+  local tab_close_button = get_tab_close_button(options, hl)
+  local _, tab_indicator_length = get_tab_indicator(tab_indicators, options)
+  local offsets = offset.get()
+  local custom_area_size = custom_area.get()
+  return vim.o.columns
+    - custom_area_size
+    - offsets.total_size
+    - tab_indicator_length
+    - get_component_size(tab_close_button)
+end
+
 --- TODO: All components should return Segment[] that are then combined in one go into a tabline
 --- @param items bufferline.Component[]
 --- @param tab_indicators bufferline.Segment[]
@@ -713,12 +723,6 @@ function M.tabline(items, tab_indicators)
     - offsets.total_size
     - tab_indicator_length
     - tab_close_button_length
-
-  local visible_count = 0
-  for _, item in ipairs(items) do
-    if not item.hidden then visible_count = visible_count + 1 end
-  end
-  render_tab_size, render_regular = resolve_tab_size(options, available_width, visible_count)
 
   local before, current, after = get_sections(items)
   local segments, marker, visible_components = truncate(before, current, after, available_width, {
@@ -763,8 +767,17 @@ end
 
 M.get_component_size = get_component_size
 M.components = components
---- Resolve the effective tab width for a given width/tab-count. Exposed for tests.
+---Resolve the effective tab width for a given width/tab-count. Exposed for tests.
 M.resolve_tab_size = resolve_tab_size
+
+---Set the tab width used while building components for the current render.
+---Pass `nil` to fall back to `options.tab_size`.
+---@param size integer?
+---@param regular boolean?
+function M.set_render_tab_size(size, regular)
+  render_tab_size = size
+  render_regular = regular
+end
 
 if utils.is_test() then
   M.to_tabline_str = to_tabline_str
