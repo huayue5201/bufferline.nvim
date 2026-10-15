@@ -26,6 +26,11 @@ local sep_chars = constants.sep_chars
 local strwidth = vim.api.nvim_strwidth
 local padding = constants.padding
 
+--- Per-render tab width override (set by M.tabline). nil = fall back to options.tab_size
+local render_tab_size = nil
+--- Whether the current render forces equal-width tabs (set by M.tabline).
+local render_regular = nil
+
 local components = {
   id = {
     diagnostics = "diagnostics",
@@ -210,7 +215,7 @@ local function add_space(ctx, length)
   local left_size, right_size = 0, 0
   local icon = options.buffer_close_icon
   -- pad each tab smaller than the max tab size to make it consistent
-  local difference = options.tab_size - length
+  local difference = (render_tab_size or options.tab_size) - length
   if difference > 0 then
     local size = math.floor(difference / 2)
     left_size, right_size = size + left_size, size + right_size
@@ -244,6 +249,43 @@ end
 ---@return boolean
 local function is_slant(style)
   return vim.tbl_contains({ sep_names.slant, sep_names.padded_slant, sep_names.slope, sep_names.padded_slope }, style)
+end
+
+--- Horizontal overhead a tab adds besides the content (the tab separator).
+--- @param style string | {[1]: string, [2]: string}
+--- @return integer
+local function separator_overhead(style)
+  if type(style) == "table" then return strwidth(style[1]) + strwidth(style[2]) end
+  local chars = sep_chars[style] or sep_chars.thin
+  if is_slant(style) then return strwidth(chars[1]) + strwidth(chars[2]) end
+  return strwidth(chars[1])
+end
+
+--- Compute the tab width for this render.
+--- `options.tab_size` may be a number, "auto" (fill the window), or a function.
+--- @param options bufferline.Options
+--- @param available_width integer
+--- @param count integer number of visible tabs
+--- @return integer width
+--- @return boolean regular whether tabs should be forced to equal width
+local function resolve_tab_size(options, available_width, count)
+  local tab_size = options.tab_size
+  if type(tab_size) == "function" then
+    return tab_size(available_width, count), true
+  end
+  if tab_size ~= "auto" then
+    return tab_size, options.enforce_regular_tabs
+  end
+  if count <= 0 then return options.max_name_length, true end
+  local overhead = separator_overhead(options.separator_style)
+  local size = math.floor((available_width - count * overhead) / count)
+  if options.min_tab_size and options.min_tab_size > 0 then
+    size = math.max(size, options.min_tab_size)
+  end
+  if options.max_tab_size and options.max_tab_size > 0 then
+    size = math.min(size, options.max_tab_size)
+  end
+  return math.max(size, 1), true
 end
 
 --- "▍" "░"
@@ -361,14 +403,17 @@ local function get_max_length(context)
   local padding_size = strwidth(padding) * 2
   local max_length = options.max_name_length
 
-  local autosize = not options.truncate_names and not options.enforce_regular_tabs
+  local tab_size = render_tab_size or options.tab_size
+  local enforce = render_regular or options.enforce_regular_tabs
+
+  local autosize = not options.truncate_names and not enforce
   local name_size = strwidth(context.tab.name)
   if autosize and name_size >= max_length then return name_size end
 
-  if not options.enforce_regular_tabs then return max_length end
+  if not enforce then return max_length end
   -- estimate the maximum allowed size of a filename given that it will be
   -- padded and prefixed with a file icon
-  return options.tab_size - strwidth(modified) - icon_size - padding_size
+  return tab_size - strwidth(modified) - icon_size - padding_size
 end
 
 ---@param ctx bufferline.RenderContext
@@ -668,6 +713,12 @@ function M.tabline(items, tab_indicators)
     - offsets.total_size
     - tab_indicator_length
     - tab_close_button_length
+
+  local visible_count = 0
+  for _, item in ipairs(items) do
+    if not item.hidden then visible_count = visible_count + 1 end
+  end
+  render_tab_size, render_regular = resolve_tab_size(options, available_width, visible_count)
 
   local before, current, after = get_sections(items)
   local segments, marker, visible_components = truncate(before, current, after, available_width, {

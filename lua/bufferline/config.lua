@@ -650,6 +650,8 @@ local function get_defaults()
     name_formatter = nil,
     truncate_names = true,
     tab_size = 18,
+    min_tab_size = 0,
+    max_tab_size = 0,
     max_name_length = 18,
     color_icons = true,
     show_buffer_icons = true,

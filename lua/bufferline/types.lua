@@ -40,7 +40,9 @@
 ---@field public right_trunc_marker? string
 ---@field public separator_style? string | {[1]: string, [2]: string}
 ---@field public name_formatter? (fun(path: string):string)?
----@field public tab_size? number
+---@field public tab_size? number | "auto" | fun(available_width: integer, count: integer): integer
+---@field public min_tab_size? number
+---@field public max_tab_size? number
 ---@field public truncate_names? boolean
 ---@field public max_name_length? number
 ---@field public color_icons? boolean
