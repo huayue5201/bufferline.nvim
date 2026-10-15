@@ -544,7 +544,7 @@ function M.element(current_state, element)
   local duplicate_prefix = not compact and duplicates.component(ctx) or nil
   local group_item = element.group and groups.component(ctx) or nil
   local diagnostic = not compact and diagnostics.component(ctx) or nil
-  local icon = add_icon(ctx)
+  local icon = not compact and add_icon(ctx) or nil
   local number_item = not compact and numbers.component(ctx) or nil
   local suffix = not compact and add_suffix(ctx) or nil
   local indicator = add_indicator(ctx)
