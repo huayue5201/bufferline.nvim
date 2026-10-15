@@ -274,21 +274,13 @@ end
 --- @return boolean regular whether tabs should be forced to equal width
 local function resolve_tab_size(options, available_width, count)
   local tab_size = options.tab_size
-  if type(tab_size) == "function" then
-    return tab_size(available_width, count), true
-  end
-  if tab_size ~= "auto" then
-    return tab_size, options.enforce_regular_tabs
-  end
+  if type(tab_size) == "function" then return tab_size(available_width, count), true end
+  if tab_size ~= "auto" then return tab_size, options.enforce_regular_tabs end
   if count <= 0 then return options.max_name_length, true end
   local overhead = separator_overhead(options.separator_style)
   local size = math.floor((available_width - count * overhead) / count)
-  if options.min_tab_size and options.min_tab_size > 0 then
-    size = math.max(size, options.min_tab_size)
-  end
-  if options.max_tab_size and options.max_tab_size > 0 then
-    size = math.min(size, options.max_tab_size)
-  end
+  if options.min_tab_size and options.min_tab_size > 0 then size = math.max(size, options.min_tab_size) end
+  if options.max_tab_size and options.max_tab_size > 0 then size = math.min(size, options.max_tab_size) end
   return math.max(size, 1), true
 end
 
@@ -408,9 +400,7 @@ local function get_max_length(context)
   local max_length = options.max_name_length
 
   local tab_size = render_tab_size
-  if not tab_size then
-    tab_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length
-  end
+  if not tab_size then tab_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length end
   local enforce = render_regular
   if enforce == nil then
     enforce = options.enforce_regular_tabs or options.tab_size == "auto" or type(options.tab_size) == "function"
@@ -773,6 +763,8 @@ end
 
 M.get_component_size = get_component_size
 M.components = components
+--- Resolve the effective tab width for a given width/tab-count. Exposed for tests.
+M.resolve_tab_size = resolve_tab_size
 
 if utils.is_test() then
   M.to_tabline_str = to_tabline_str
