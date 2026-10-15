@@ -99,6 +99,26 @@ describe("Bufferline tests:", function()
       assert.is.equal(ui.available_width({}), total)
       assert.is.equal(#state.components, #state.visible_components)
     end)
+
+    it("should keep every tab visible in compact mode when space runs out", function()
+      local original_columns = vim.o.columns
+      vim.o.columns = 60
+      bufferline.setup({
+        options = {
+          tab_size = "auto",
+          enforce_regular_tabs = true,
+          numbers = "both",
+          show_buffer_icons = false,
+          show_buffer_close_icons = true,
+        },
+      })
+      for i = 1, 25 do
+        vim.cmd("edit compact-fill-" .. i .. ".txt")
+      end
+      nvim_bufferline()
+      assert.is.equal(#state.components, #state.visible_components)
+      vim.o.columns = original_columns
+    end)
   end)
 
   describe("Snapshots - ", function()

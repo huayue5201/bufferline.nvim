@@ -33,6 +33,10 @@ local render_regular = nil
 --- Buffer ids that get one extra column this render, so the tabs fill the
 --- window exactly instead of leaving a growing gap before the right edge.
 local render_plus = nil
+--- When true, non-current tabs drop their name, numbers, diagnostics and
+--- padding and render as a compact icon-only tab. Set by M.tabline so a busy
+--- tabline can keep every tab visible instead of hiding whole tabs.
+local render_compact = false
 
 ---Effective width for a single tab this render (base + fill remainder).
 ---@param tab bufferline.TabElement?
@@ -223,6 +227,8 @@ end
 ---@param length number
 ---@return bufferline.Segment?, bufferline.Segment?
 local function add_space(ctx, length)
+  -- Compact tabs have no room to spare, so they carry no padding at all.
+  if render_compact and not ctx.tab:current() then return end
   local options = config.options
   local curr_hl = ctx.current_highlights
   local left_size, right_size = 0, 0
@@ -534,16 +540,17 @@ function M.element(current_state, element)
     is_picking = current_state.is_picking,
   })
 
-  local duplicate_prefix = duplicates.component(ctx)
+  local compact = render_compact and not element:current()
+  local duplicate_prefix = not compact and duplicates.component(ctx) or nil
   local group_item = element.group and groups.component(ctx) or nil
-  local diagnostic = diagnostics.component(ctx)
+  local diagnostic = not compact and diagnostics.component(ctx) or nil
   local icon = add_icon(ctx)
-  local number_item = numbers.component(ctx)
-  local suffix = add_suffix(ctx)
+  local number_item = not compact and numbers.component(ctx) or nil
+  local suffix = not compact and add_suffix(ctx) or nil
   local indicator = add_indicator(ctx)
   local left, right = add_separators(ctx)
 
-  local name = get_name(ctx)
+  local name = not compact and get_name(ctx) or nil
   -- Guess how much space there will for padding based on the buffer's name
   local name_size = get_component_size({ duplicate_prefix, name, spacing(), icon, suffix })
   local left_space, right_space = add_space(ctx, name_size)
@@ -572,6 +579,9 @@ function M.element(current_state, element)
   -- NOTE: we must count the size of the separators here although we do not
   -- add them yet, since by the time they are added the component will already have rendered
   element.length = get_component_size(filter_invalid({ left, right, unpack(component) }))
+  -- Marks this element as a tab (group start/end markers are not tabs), so the
+  -- layout can size tabs even when a compact tab has no name.
+  element.is_tab = true
   return element
 end
 
@@ -756,12 +766,24 @@ function M.tabline(items, tab_indicators)
     - tab_close_button_length
 
   local before, current, after = get_sections(items)
-  local segments, marker, visible_components = truncate(before, current, after, available_width, {
-    left_count = 0,
-    right_count = 0,
-    left_element_size = left_element_size,
-    right_element_size = right_element_size,
-  })
+  local segments, marker, visible_components
+  if render_tab_size ~= nil then
+    -- Flex mode: tab widths were fitted to the window, so render every tab in
+    -- order and never drop tabs to make room (the legacy truncate behaviour).
+    visible_components = utils.merge_lists(before.items, current.items, after.items)
+    segments = {}
+    for index, item in ipairs(visible_components) do
+      table.insert(segments, item.component(visible_components[index + 1]))
+    end
+    marker = { left_count = 0, right_count = 0 }
+  else
+    segments, marker, visible_components = truncate(before, current, after, available_width, {
+      left_count = 0,
+      right_count = 0,
+      left_element_size = left_element_size,
+      right_element_size = right_element_size,
+    })
+  end
 
   local marker_hl = hl.trunc_marker.hl_group
   local left_marker = get_trunc_marker(left_trunc_icon, marker_hl, marker_hl, marker.left_count)
@@ -806,10 +828,12 @@ M.resolve_tab_size = resolve_tab_size
 ---@param size integer?
 ---@param regular boolean?
 ---@param plus table<integer, boolean>? buffer ids that get one extra column
-function M.set_render_tab_size(size, regular, plus)
+---@param compact boolean? render non-current tabs in compact icon-only mode
+function M.set_render_tab_size(size, regular, plus, compact)
   render_tab_size = size
   render_regular = regular
   render_plus = plus
+  render_compact = compact or false
 end
 
 if utils.is_test() then
