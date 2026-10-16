@@ -280,6 +280,21 @@ local function derive_colors(preset)
 
   local underline_sp = has_underline_indicator and tabline_sel_bg or nil
 
+  -- Non-slanted separators (thin/thick) are hairlines drawn on the fill
+  -- background, so their cell must keep that background; using the tab-state
+  -- background leaves a one-cell band of the tab colour sticking out past the
+  -- hairline. Slanted separators are filled glyphs and do need the tab-state
+  -- background so the fill blends with the tab.
+  local separator_style = vim.tbl_get(config, "user", "options", "separator_style")
+  local is_slant_separator = vim.tbl_contains({
+    constants.sep_names.slant,
+    constants.sep_names.padded_slant,
+    constants.sep_names.slope,
+    constants.sep_names.padded_slope,
+  }, separator_style)
+  local separator_selected_bg = is_slant_separator and normal_bg or background_color
+  local separator_visible_bg = is_slant_separator and visible_bg or background_color
+
   local trunc_marker_fg = comment_fg
   local trunc_marker_bg = separator_background_color
 
@@ -560,13 +575,13 @@ local function derive_colors(preset)
     },
     separator_selected = {
       fg = separator_background_color,
-      bg = normal_bg,
+      bg = separator_selected_bg,
       sp = underline_sp,
       underline = has_underline_indicator,
     },
     separator_visible = {
       fg = separator_background_color,
-      bg = visible_bg,
+      bg = separator_visible_bg,
     },
     separator = {
       fg = separator_background_color,
