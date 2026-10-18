@@ -249,9 +249,7 @@ local function setup_autocommands(conf)
   -- buffer is being unloaded.
   api.nvim_create_autocmd({ "BufAdd", "BufDelete", "TabEnter", "TabClosed" }, {
     group = BUFFERLINE_GROUP,
-    callback = function()
-      vim.schedule(function() vim.cmd.redrawtabline() end)
-    end,
+    callback = function() utils.schedule_redraw() end,
   })
   if not options or vim.tbl_isempty(options) then return end
   if options.persist_buffer_sort then
@@ -291,6 +289,9 @@ local function setup_autocommands(conf)
     callback = ui.on_hover_out,
   })
 end
+
+---Redraw the tabline after the current event-loop turn (coalesced with other requests)
+M.redraw = function() utils.schedule_redraw() end
 
 local function command(name, cmd, opts) api.nvim_create_user_command(name, cmd, opts or {}) end
 

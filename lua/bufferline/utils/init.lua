@@ -278,4 +278,20 @@ M.is_list = vim.isarray or vim.islist or vim.tbl_isarray or vim.tbl_islist
 ---@diagnostic disable: deprecated
 function M.tbl_flatten(t) return is_version_11 and vim.iter(t):flatten(math.huge):totable() or vim.tbl_flatten(t) end
 
+local redraw_scheduled = false
+
+---Request a tabline redraw, coalescing every request made in the same event-loop turn
+---into a single render. The tabline is driven by 'buflisted' and the current tabpage,
+---which can change several times in one turn (e.g. a plugin toggling buflisted for a
+---list of buffers); without coalescing each change renders a frame on its own, which
+---shows up as flicker.
+function M.schedule_redraw()
+  if redraw_scheduled then return end
+  redraw_scheduled = true
+  vim.schedule(function()
+    redraw_scheduled = false
+    pcall(vim.cmd.redrawtabline)
+  end)
+end
+
 return M
