@@ -241,6 +241,18 @@ local function setup_autocommands(conf)
     group = BUFFERLINE_GROUP,
     callback = function() state.prune_custom_sorts() end,
   })
+  -- What the tabline shows is driven by 'buflisted', which has no event of its own: a
+  -- buffer can become (un)listed at any time (e.g. plugin-managed per-tab buffer sets)
+  -- and 'buflisted' changes fire BufDelete without a matching render trigger. Redraw on
+  -- every event that may change the listed set or the current tab, so callers do not
+  -- have to poke `:redrawtabline` themselves. Scheduled: BufDelete can fire while a
+  -- buffer is being unloaded.
+  api.nvim_create_autocmd({ "BufAdd", "BufDelete", "TabEnter", "TabClosed" }, {
+    group = BUFFERLINE_GROUP,
+    callback = function()
+      vim.schedule(function() vim.cmd.redrawtabline() end)
+    end,
+  })
   if not options or vim.tbl_isempty(options) then return end
   if options.persist_buffer_sort then
     api.nvim_create_autocmd("SessionLoadPost", {
