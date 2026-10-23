@@ -119,6 +119,47 @@ describe("Bufferline tests:", function()
       assert.is.equal(#state.components, #state.visible_components)
       vim.o.columns = original_columns
     end)
+
+    it("should keep tabs evenly sized when an offset panel narrows the tabline", function()
+      local original_columns = vim.o.columns
+      vim.o.columns = 120
+      -- a sidebar such as neo-tree takes a chunk of the tabline away
+      local normal = vim.api.nvim_get_current_win()
+      vim.cmd("vnew")
+      local panel = vim.api.nvim_get_current_win()
+      vim.bo.buflisted = false
+      vim.bo.filetype = "test-sidebar"
+      vim.api.nvim_win_set_width(panel, 30)
+      vim.api.nvim_set_current_win(normal)
+      bufferline.setup({
+        options = {
+          tab_size = "auto",
+          enforce_regular_tabs = true,
+          numbers = "both",
+          show_buffer_icons = false,
+          show_buffer_close_icons = true,
+          offsets = { { filetype = "test-sidebar", text = "Explorer" } },
+        },
+      })
+      for i = 1, 9 do
+        vim.cmd("edit offset-fill-" .. i .. ".txt")
+      end
+      nvim_bufferline()
+      assert.is.equal(#state.components, #state.visible_components)
+      local total, min, max = 0, math.huge, 0
+      for _, component in ipairs(state.visible_components) do
+        total = total + component.length
+        min = math.min(min, component.length)
+        max = math.max(max, component.length)
+      end
+      local ui = require("bufferline.ui")
+      assert.is.equal(ui.available_width({}), total)
+      -- tabs stay the same width (within the odd leftover column) instead of
+      -- collapsing to icon-only tabs bunched on the left
+      assert.is_true(max - min <= 1)
+      assert.is_true(max > 8)
+      vim.o.columns = original_columns
+    end)
   end)
 
   describe("Snapshots - ", function()

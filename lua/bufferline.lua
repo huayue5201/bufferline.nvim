@@ -117,31 +117,45 @@ local function bufferline()
     return others, fixed, current
   end
 
-  ---Largest tab width at which the whole tabline fits. Tries full tabs first,
-  ---then compact icon-only tabs; tabs are never dropped.
+  ---Largest tab width at which every tab fits at equal width, for one chrome
+  ---trim level. Returns nil when even the minimum tab width overflows, so the
+  ---next (leaner) level can take over instead of cramming the tabs.
   ---@param available integer
-  ---@return integer size, boolean compact
-  local function fit_tabs(available)
+  ---@param trim integer 0 = full chrome, 1 = no close slot, 2 = also no numbers, 3 = also no names
+  ---@return integer? size
+  local function fit_regular(available, trim)
     local probe = options.max_name_length
-    ui.set_render_tab_size(probe, true, nil, false)
+    ui.set_render_tab_size(probe, true, nil, false, trim)
     local count, tabs, fixed = measure(assemble())
-    if count > 0 then
-      local size = ui.resolve_tab_size(options, available - fixed, count, tabs - probe * count)
-      -- The estimate can be a column or two off (odd padding, duplicate
-      -- prefixes, group markers), so shrink until the real tabline fits.
-      for _ = 1, 32 do
-        if size <= 1 then break end
-        ui.set_render_tab_size(size, true, nil, false)
-        local _, t, f = measure(assemble())
-        if t + f <= available then break end
-        size = size - 1
-      end
-      ui.set_render_tab_size(size, true, nil, false)
+    if count == 0 then return nil end
+    local size = ui.resolve_tab_size(options, available - fixed, count, tabs - probe * count)
+    -- The estimate can be a column or two off (odd padding, duplicate
+    -- prefixes, group markers), so shrink until the real tabline fits. Stop as
+    -- soon as shrinking no longer helps: past the minimum tab width (a name
+    -- can only shrink to an ellipsis) the remaining width is fixed chrome, and
+    -- only dropping more chrome can make the tabs narrower.
+    local previous
+    while size > 1 do
+      ui.set_render_tab_size(size, true, nil, false, trim)
       local _, t, f = measure(assemble())
-      if t + f <= available then return size, false end
+      if t + f <= available then return size end
+      if t + f == previous then break end
+      previous = t + f
+      size = size - 1
     end
-    -- Compact fallback: only the current tab keeps a name, every other tab
-    -- shrinks to its icon, so a busy tabline still shows every buffer.
+    ui.set_render_tab_size(1, true, nil, false, trim)
+    local _, t, f = measure(assemble())
+    if t + f <= available then return 1 end
+    return nil
+  end
+
+  ---Last resort: only the current tab keeps a name, every other tab shrinks to
+  ---an icon so a busy tabline still shows every buffer. The current tab takes
+  ---whatever width is left over.
+  ---@param available integer
+  ---@return integer size
+  local function fit_compact(available)
+    local probe = options.max_name_length
     ui.set_render_tab_size(probe, true, nil, true)
     local others, compact_fixed, current_len = measure_compact(assemble())
     -- The current tab is padded to the tab width, so its chrome (numbers,
@@ -155,13 +169,27 @@ local function bufferline()
       size = math.max(1, size - (t + f - available))
     end
     ui.set_render_tab_size(size, true, nil, true)
-    return size, true
+    return size
+  end
+
+  ---Largest equal tab width at which the whole tabline fits. Drops optional
+  ---chrome (close slot, numbers, then names) before resorting to compact
+  ---icon-only tabs, so an offset panel narrowing the bar does not cram every
+  ---tab against the left edge.
+  ---@param available integer
+  ---@return integer size, integer trim, boolean compact
+  local function fit_tabs(available)
+    for trim = 0, 3 do
+      local size = fit_regular(available, trim)
+      if size then return size, trim, false end
+    end
+    return fit_compact(available), 0, true
   end
 
   local components
   if options.tab_size == "auto" then
     local available = ui.available_width(tab_indicators)
-    local size, compact = fit_tabs(available)
+    local size, trim, compact = fit_tabs(available)
     -- Spread the leftover columns across the leading tabs so the tabs fill the
     -- bar exactly instead of leaving a gap that grows with the tab count.
     local plus = {}
@@ -178,7 +206,7 @@ local function bufferline()
         end
       end
     end
-    ui.set_render_tab_size(size, true, next(plus) and plus or nil, compact)
+    ui.set_render_tab_size(size, true, next(plus) and plus or nil, compact, trim)
     components = assemble()
   elseif type(options.tab_size) == "function" then
     local probe = options.max_name_length

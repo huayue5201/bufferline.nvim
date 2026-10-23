@@ -37,6 +37,11 @@ local render_plus = nil
 --- padding and render as a compact icon-only tab. Set by M.tabline so a busy
 --- tabline can keep every tab visible instead of hiding whole tabs.
 local render_compact = false
+--- How much optional per-tab chrome to drop this render when the window (or a
+--- sidebar offset) leaves too little width. Each step is leaner than the last:
+--- 0 = everything, 1 = no close/modified slot, 2 = also no numbers, 3 = also
+--- no name (all tabs icon-only but still equally wide).
+local render_trim = 0
 
 ---Effective width for a single tab this render (base + fill remainder).
 ---@param tab bufferline.TabElement?
@@ -242,7 +247,7 @@ local function add_space(ctx, length)
     -- give the odd remainder to the right so the tab always reaches base_size
     left_size, right_size = size + left_size, difference - size + right_size
   end
-  if not options.show_buffer_close_icons then
+  if not options.show_buffer_close_icons or render_trim >= 1 then
     right_size = right_size > 0 and right_size - strwidth(icon) or right_size
     left_size = left_size + strwidth(icon)
   end
@@ -440,7 +445,10 @@ local function get_max_length(context)
   if not enforce then return max_length end
   -- estimate the maximum allowed size of a filename given that it will be
   -- padded and prefixed with a file icon
-  return tab_size - button_width(options) - icon_size - padding_size
+  -- The close/modified slot is the first thing dropped when space is tight, so
+  -- do not reserve room for it then.
+  local button = render_trim >= 1 and 0 or button_width(options)
+  return tab_size - button - icon_size - padding_size
 end
 
 ---@param ctx bufferline.RenderContext
@@ -538,13 +546,16 @@ function M.element(current_state, element)
     is_picking = current_state.is_picking,
   })
 
-  local compact = render_compact and not element:current()
+  -- Trimmed tail (see render_trim) eventually strips the name from every tab,
+  -- current one included, so all tabs keep the same width.
+  local compact = (render_compact and not element:current()) or render_trim >= 3
+  local trim = render_trim
   local duplicate_prefix = not compact and duplicates.component(ctx) or nil
   local group_item = element.group and groups.component(ctx) or nil
   local diagnostic = not compact and diagnostics.component(ctx) or nil
   local icon = not compact and add_icon(ctx) or nil
-  local number_item = not compact and numbers.component(ctx) or nil
-  local suffix = not compact and add_suffix(ctx) or nil
+  local number_item = not compact and trim < 2 and numbers.component(ctx) or nil
+  local suffix = not compact and trim < 1 and add_suffix(ctx) or nil
   local indicator = add_indicator(ctx)
   local left, right = add_separators(ctx)
 
@@ -817,11 +828,13 @@ M.resolve_tab_size = resolve_tab_size
 ---@param regular boolean?
 ---@param plus table<integer, boolean>? buffer ids that get one extra column
 ---@param compact boolean? render non-current tabs in compact icon-only mode
-function M.set_render_tab_size(size, regular, plus, compact)
+---@param trim integer? optional chrome to drop (0 = none, 1 = no close slot, 2 = also no numbers, 3 = also no names)
+function M.set_render_tab_size(size, regular, plus, compact, trim)
   render_tab_size = size
   render_regular = regular
   render_plus = plus
   render_compact = compact or false
+  render_trim = trim or 0
 end
 
 if utils.is_test() then
