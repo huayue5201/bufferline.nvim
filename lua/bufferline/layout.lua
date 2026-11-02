@@ -182,8 +182,11 @@ local function fit_level(ctx, trim, expand)
   -- The focused tab, if any, keeps its name in full; it is then excluded from
   -- the even split below.
   local focus_length
-  if expand and focus then
-    focus_length = focused_length(ctx, { widths = probe_widths, trim = trim, expand = true })
+  if expand then
+    -- `focus` is nil when the current buffer is not in the tabline at all
+    -- (filtered out by buffer_source, unlisted, ...); there is nothing to
+    -- expand in that case.
+    if focus then focus_length = focused_length(ctx, { widths = probe_widths, trim = trim, expand = true }) end
     if not focus_length then expand = false end
   end
   if not expand then focus = nil end
