@@ -42,6 +42,10 @@ local render_compact = false
 --- 0 = everything, 1 = no close/modified slot, 2 = also no numbers, 3 = also
 --- no name (all tabs icon-only but still equally wide).
 local render_trim = 0
+--- When true, the current tab keeps its name in full while the other tabs are
+--- squeezed into whatever width is left (like a browser tab strip). Set by the
+--- flex layout; only ever used together with `render_tab_size`.
+local render_expand = false
 
 ---Effective width for a single tab this render (base + fill remainder).
 ---@param tab bufferline.TabElement?
@@ -236,6 +240,11 @@ local function add_space(ctx, length)
   local curr_hl = ctx.current_highlights
   local left_size, right_size = 0, 0
   local icon = options.buffer_close_icon
+  -- The expanded current tab is sized by its own name, so it only carries a
+  -- thin fixed padding instead of being padded up to the shared tab width.
+  if render_expand and ctx.tab:current() then
+    return pad({ left = { size = 1, hl = curr_hl.buffer }, right = { size = 1 } })
+  end
   -- pad each tab smaller than the max tab size to make it consistent
   local base_size = tab_width(ctx.tab)
   if not base_size then
@@ -430,6 +439,10 @@ local function get_max_length(context)
   local icon_size = strwidth(element.icon)
   local padding_size = strwidth(padding) * 2
   local max_length = options.max_name_length
+
+  -- The focused tab shows its name in full, like a browser tab; the other tabs
+  -- absorb the width difference instead of every tab being truncated alike.
+  if render_expand and element:current() then return math.max(strwidth(element.name), 1) end
 
   local tab_size = tab_width(context.tab)
   if not tab_size then tab_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length end
@@ -829,12 +842,14 @@ M.resolve_tab_size = resolve_tab_size
 ---@param plus table<integer, boolean>? buffer ids that get one extra column
 ---@param compact boolean? render non-current tabs in compact icon-only mode
 ---@param trim integer? optional chrome to drop (0 = none, 1 = no close slot, 2 = also no numbers, 3 = also no names)
-function M.set_render_tab_size(size, regular, plus, compact, trim)
+---@param expand boolean? let the current tab grow to its full name width
+function M.set_render_tab_size(size, regular, plus, compact, trim, expand)
   render_tab_size = size
   render_regular = regular
   render_plus = plus
   render_compact = compact or false
   render_trim = trim or 0
+  render_expand = expand or false
 end
 
 if utils.is_test() then

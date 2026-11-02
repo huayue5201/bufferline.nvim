@@ -120,7 +120,7 @@ describe("Bufferline tests:", function()
       vim.o.columns = original_columns
     end)
 
-    it("should keep tabs evenly sized when an offset panel narrows the tabline", function()
+    it("should keep the focused tab full-width when an offset panel narrows the tabline", function()
       local original_columns = vim.o.columns
       vim.o.columns = 120
       -- a sidebar such as neo-tree takes a chunk of the tabline away
@@ -146,18 +146,59 @@ describe("Bufferline tests:", function()
       end
       nvim_bufferline()
       assert.is.equal(#state.components, #state.visible_components)
-      local total, min, max = 0, math.huge, 0
+      local total = 0
+      local current, others, min, max = nil, 0, math.huge, 0
       for _, component in ipairs(state.visible_components) do
         total = total + component.length
-        min = math.min(min, component.length)
-        max = math.max(max, component.length)
+        if component:current() then
+          current = component
+        else
+          others = others + 1
+          min = math.min(min, component.length)
+          max = math.max(max, component.length)
+        end
       end
       local ui = require("bufferline.ui")
       assert.is.equal(ui.available_width({}), total)
-      -- tabs stay the same width (within the odd leftover column) instead of
-      -- collapsing to icon-only tabs bunched on the left
+      -- the focused tab keeps its whole name and is wider than the rest
+      assert.is_truthy(current)
+      assert.is_true(current.length > max)
+      assert.is_true(current.length >= #"offset-fill-9.txt")
+      -- the remaining tabs stay evenly sized instead of collapsing to
+      -- icon-only tabs bunched on the left
+      assert.is_true(others > 1)
       assert.is_true(max - min <= 1)
-      assert.is_true(max > 8)
+      assert.is_true(max > 6)
+      vim.o.columns = original_columns
+    end)
+
+    it("should show the full focused name while squeezing the other tabs", function()
+      local original_columns = vim.o.columns
+      vim.o.columns = 80
+      bufferline.setup({
+        options = {
+          tab_size = "auto",
+          enforce_regular_tabs = true,
+          numbers = "both",
+          show_buffer_icons = false,
+          show_buffer_close_icons = true,
+        },
+      })
+      local names = {
+        "a-really-long-first-filename.txt",
+        "another-long-second-filename.txt",
+        "third-buffer.txt",
+        "fourth-buffer.txt",
+        "focused-buffer-name.txt",
+      }
+      for _, name in ipairs(names) do
+        vim.cmd("edit " .. name)
+      end
+      local tabline = nvim_bufferline()
+      -- the focused (last edited) buffer is rendered without an ellipsis
+      assert.is_truthy(tabline:find("focused-buffer-name.txt", 1, true))
+      -- the others had to give up width and get truncated
+      assert.is_truthy(tabline:find("…", 1, true))
       vim.o.columns = original_columns
     end)
   end)

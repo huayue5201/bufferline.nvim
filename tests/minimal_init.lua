@@ -28,6 +28,11 @@ function M.setup()
   vim.opt.packpath = { M.root(".tests/site") }
   M.load("nvim-lua/plenary.nvim")
   M.load("nvim-tree/nvim-web-devicons")
+  -- `set runtimepath=$VIMRUNTIME` above drops the test deps put on the
+  -- runtimepath by the harness; add them back explicitly so they resolve on
+  -- every supported nvim version.
+  vim.opt.runtimepath:append(M.root(".tests/site/pack/deps/start/plenary.nvim"))
+  vim.opt.runtimepath:append(M.root(".tests/site/pack/deps/start/nvim-web-devicons"))
   vim.env.XDG_CONFIG_HOME = M.root(".tests/config")
   vim.env.XDG_DATA_HOME = M.root(".tests/data")
   vim.env.XDG_STATE_HOME = M.root(".tests/state")
