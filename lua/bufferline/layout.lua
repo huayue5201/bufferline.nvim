@@ -33,7 +33,7 @@ local PROBE = 24
 ---@class bufferline.Layout
 ---@field widths table<integer, integer>? buffer id -> padded name width
 ---@field size integer? width used for every tab when `widths` is absent
----@field trim integer decoration level: 0 full, 1 no close slot, 2 + no numbers, 3 + no names
+---@field trim integer decoration level: 0 full, 1 no close slot, 2 + no numbers, 3 + no names, 4 + no icons or separators
 ---@field expand boolean let the focused tab grow to its full name
 
 ---@class bufferline.LayoutCtx
@@ -258,13 +258,13 @@ end
 ---@param ctx bufferline.LayoutCtx
 ---@return bufferline.Layout
 function M.fit(ctx)
-  for trim = 0, 3 do
+  for trim = 0, 4 do
     for _, expand in ipairs({ true, false }) do
       local layout = fit_level(ctx, trim, expand)
       if layout then return layout end
     end
   end
-  return fit_minimal(ctx, 3)
+  return fit_minimal(ctx, 4)
 end
 
 return M

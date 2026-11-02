@@ -232,7 +232,8 @@ end
 local function add_space(ctx, length)
   -- Tabs stripped of their name have no room to spare, so they carry no
   -- padding at all.
-  if trim_level() >= 3 and not ctx.tab:current() then return end
+  local level = trim_level()
+  if level >= 4 or (level >= 3 and not ctx.tab:current()) then return end
   local options = config.options
   local curr_hl = ctx.current_highlights
   local left_size, right_size = 0, 0
@@ -405,6 +406,9 @@ end
 --- @return bufferline.Segment?, bufferline.Segment
 local function add_separators(context)
   local options = config.options
+  -- Last resort for a bar too narrow to hold its tabs: the separator is chrome
+  -- that repeats once per tab, so it is the first thing to go after the names.
+  if trim_level() >= 4 then return nil, nil end
   local style = options.separator_style
   local focused = context.tab:current() or context.tab:visible()
   local right_sep, left_sep = get_separator(focused, style)
@@ -552,11 +556,13 @@ function M.element(current_state, element)
   -- The last decoration level strips the name from the tabs that are not
   -- focused, so a busy tabline still shows where you are.
   local trim = trim_level()
-  local compact = trim >= 3 and not element:current()
+  -- Level 3 drops the names of the tabs that are not focused; level 4 drops the
+  -- name of the focused tab too, leaving bare icon blocks as a last resort.
+  local compact = trim >= 4 or (trim >= 3 and not element:current())
   local duplicate_prefix = not compact and duplicates.component(ctx) or nil
   local group_item = element.group and groups.component(ctx) or nil
   local diagnostic = not compact and diagnostics.component(ctx) or nil
-  local icon = not compact and add_icon(ctx) or nil
+  local icon = not compact and trim < 4 and add_icon(ctx) or nil
   local number_item = not compact and trim < 2 and numbers.component(ctx) or nil
   local suffix = not compact and trim < 1 and add_suffix(ctx) or nil
   local indicator = add_indicator(ctx)
