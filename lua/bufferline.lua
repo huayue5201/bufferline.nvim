@@ -10,6 +10,7 @@ local commands = lazy.require("bufferline.commands") ---@module "bufferline.comm
 local tabpages = lazy.require("bufferline.tabpages") ---@module "bufferline.tabpages"
 local highlights = lazy.require("bufferline.highlights") ---@module "bufferline.highlights"
 local hover = lazy.require("bufferline.hover") ---@module "bufferline.hover"
+local layout_mod = lazy.require("bufferline.layout") ---@module "bufferline.layout"
 
 -- @v:lua@ in the tabline only supports global functions, so this is
 -- the only way to add click handlers without autoloaded vimscript functions
@@ -76,188 +77,41 @@ local function bufferline()
     return not is_tabline and groups.render(list, sorter) or sorter(list)
   end
 
-  ---Width of a fully assembled list, split into tab width (which scales with
-  ---the tab size) and fixed chrome such as group start/end markers.
+  ---Count the tabs of a fully assembled list.
   ---@param list bufferline.Component[]
-  ---@return integer count, integer tabs, integer fixed
-  local function measure(list)
-    local count, tabs, fixed = 0, 0, 0
+  ---@return integer
+  local function count_tabs(list)
+    local count = 0
     for _, component in ipairs(list) do
-      if not component.hidden then
-        if component.is_tab then
-          count = count + 1
-          tabs = tabs + component.length
-        else
-          fixed = fixed + component.length
-        end
-      end
+      if not component.hidden and component.is_tab then count = count + 1 end
     end
-    return count, tabs, fixed
+    return count
   end
 
-  ---Sum of everything except the current tab (compact non-current tabs plus
-  ---group markers), so the current tab can take the remaining width.
-  ---@param list bufferline.Component[]
-  ---@return integer others, integer fixed, integer current, integer count
-  local function measure_compact(list)
-    local count, others, fixed, current = 0, 0, 0, 0
-    for _, component in ipairs(list) do
-      if not component.hidden then
-        if component.is_tab then
-          if component:current() then
-            current = component.length
-          else
-            count = count + 1
-            others = others + component.length
-          end
-        else
-          fixed = fixed + component.length
-        end
-      end
-    end
-    return others, fixed, current, count
-  end
-
-  ---Largest tab width at which every tab fits at equal width, for one chrome
-  ---trim level. Returns nil when even the minimum tab width overflows, so the
-  ---next (leaner) level can take over instead of cramming the tabs.
-  ---@param available integer
-  ---@param trim integer 0 = full chrome, 1 = no close slot, 2 = also no numbers, 3 = also no names
-  ---@return integer? size
-  local function fit_regular(available, trim)
-    local probe = options.max_name_length
-    ui.set_render_tab_size(probe, true, nil, false, trim)
-    local count, tabs, fixed = measure(assemble())
-    if count == 0 then return nil end
-    local size = ui.resolve_tab_size(options, available - fixed, count, tabs - probe * count)
-    -- The estimate can be a column or two off (odd padding, duplicate
-    -- prefixes, group markers), so shrink until the real tabline fits. Stop as
-    -- soon as shrinking no longer helps: past the minimum tab width (a name
-    -- can only shrink to an ellipsis) the remaining width is fixed chrome, and
-    -- only dropping more chrome can make the tabs narrower.
-    local previous
-    while size > 1 do
-      ui.set_render_tab_size(size, true, nil, false, trim)
-      local _, t, f = measure(assemble())
-      if t + f <= available then return size end
-      if t + f == previous then break end
-      previous = t + f
-      size = size - 1
-    end
-    ui.set_render_tab_size(1, true, nil, false, trim)
-    local _, t, f = measure(assemble())
-    if t + f <= available then return 1 end
-    return nil
-  end
-
-  ---Last resort: only the current tab keeps a name, every other tab shrinks to
-  ---an icon so a busy tabline still shows every buffer. The current tab takes
-  ---whatever width is left over.
-  ---@param available integer
-  ---@return integer size
-  local function fit_compact(available)
-    local probe = options.max_name_length
-    ui.set_render_tab_size(probe, true, nil, true)
-    local others, compact_fixed, current_len = measure_compact(assemble())
-    -- The current tab is padded to the tab width, so its chrome (numbers,
-    -- indicator, separators, ...) sits outside that width and must be reserved.
-    local current_chrome = math.max(0, current_len - probe)
-    local size = math.max(1, available - others - compact_fixed - current_chrome)
-    for _ = 1, 8 do
-      ui.set_render_tab_size(size, true, nil, true)
-      local _, t, f = measure(assemble())
-      if size <= 1 or t + f <= available then break end
-      size = math.max(1, size - (t + f - available))
-    end
-    ui.set_render_tab_size(size, true, nil, true)
-    return size
-  end
-
-  ---Browser-style focus: the current tab keeps its name in full while the other
-  ---tabs split whatever width is left, instead of every tab being equally
-  ---truncated. Returns nil when there is nothing to gain (a single tab, or the
-  ---other tabs already fit at their full width), so the equal-width layout can
-  ---take over.
-  ---@param available integer
-  ---@param trim integer
-  ---@return integer? size
-  local function fit_expand(available, trim)
-    local probe = options.max_name_length
-    ui.set_render_tab_size(probe, true, nil, false, trim, true)
-    local others, fixed, current, count = measure_compact(assemble())
-    if count == 0 then return nil end
-    -- width the other tabs spend outside their padded name block
-    local others_chrome = others - probe * count
-    local size = math.floor((available - fixed - current - others_chrome) / count)
-    -- Nothing to gain: the other tabs are already wide enough that giving the
-    -- current tab its own width would not make it any wider than theirs.
-    if size >= current then return nil end
-    size = math.max(size, 1)
-    for _ = 1, 8 do
-      ui.set_render_tab_size(size, true, nil, false, trim, true)
-      local _, t, f = measure(assemble())
-      if size <= 1 or t + f <= available then break end
-      size = math.max(1, size - (t + f - available))
-    end
-    ui.set_render_tab_size(size, true, nil, false, trim, true)
-    local _, t, f = measure(assemble())
-    if t + f <= available then return size end
-    return nil
-  end
-
-  ---Largest equal tab width at which the whole tabline fits. Drops optional
-  ---chrome (close slot, numbers, then names) before resorting to compact
-  ---icon-only tabs, so an offset panel narrowing the bar does not cram every
-  ---tab against the left edge.
-  ---@param available integer
-  ---@return integer size, integer trim, boolean compact, boolean? expand
-  local function fit_tabs(available)
-    -- The focused tab gets first claim on the width; only when its full name
-    -- cannot coexist with even a one-column strip for the other tabs do we
-    -- fall back to the equally sized layout and its chrome trimming.
-    for trim = 0, 2 do
-      local size = fit_expand(available, trim)
-      if size then return size, trim, false, true end
-    end
-    for trim = 0, 3 do
-      local size = fit_regular(available, trim)
-      if size then return size, trim, false, false end
-    end
-    return fit_compact(available), 0, true, false
-  end
-
+  -- Tab widths. With `tab_size = "auto"` the whole bar is fitted to the window
+  -- by `bufferline.layout`, which hands the focused tab its full name and
+  -- splits the rest evenly (see that module for why this is one pass instead of
+  -- the estimator ladder it replaced). A numeric or functional `tab_size` still
+  -- uses the classic fixed-width layout, where tabs may be truncated away when
+  -- they do not fit.
   local components
   if options.tab_size == "auto" then
-    local available = ui.available_width(tab_indicators)
-    local size, trim, compact, expand = fit_tabs(available)
-    -- Spread the leftover columns across the leading tabs so the tabs fill the
-    -- bar exactly instead of leaving a gap that grows with the tab count.
-    local plus = {}
-    if not compact then
-      local _, t, f = measure(assemble())
-      local remainder = available - (t + f)
-      if remainder > 0 then
-        for _, component in ipairs(assemble()) do
-          if remainder <= 0 then break end
-          -- the expanded current tab is sized by its name, not by the leftover
-          if not component.hidden and component.is_tab and not (expand and component:current()) then
-            plus[component.id] = true
-            remainder = remainder - 1
-          end
-        end
-      end
-    end
-    ui.set_render_tab_size(size, true, next(plus) and plus or nil, compact, trim, expand)
-    components = assemble()
-  elseif type(options.tab_size) == "function" then
-    local probe = options.max_name_length
-    ui.set_render_tab_size(probe, true)
-    local count = measure(assemble())
-    local size, regular = ui.resolve_tab_size(options, ui.available_width(tab_indicators), count)
-    ui.set_render_tab_size(size, regular)
+    local layout = layout_mod.fit({
+      assemble = assemble,
+      apply = ui.set_render_layout,
+      available = ui.available_width(tab_indicators),
+      options = options,
+    })
+    ui.set_render_layout(layout)
     components = assemble()
   else
-    ui.set_render_tab_size(nil, nil)
+    local width = ui.resolve_tab_size(options, ui.available_width(tab_indicators), count_tabs(assemble()))
+    if width then
+      -- One shared width for every tab, rendered without truncation.
+      ui.set_render_layout({ size = width, trim = 0, expand = false })
+    else
+      ui.set_render_layout(nil)
+    end
     components = assemble()
   end
 

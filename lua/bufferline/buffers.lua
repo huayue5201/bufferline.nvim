@@ -51,7 +51,15 @@ end
 ---@return bufferline.Buffer[]
 function M.get_components(state)
   local options = config.options
-  local buf_nums = utils.get_valid_buffers()
+  -- buffer_source: 由外部（如 tab_workspace）给出本次渲染要显示的 buffer 列表。
+  -- 每次渲染只调用一次，替代「按 buffer 逐个 custom_filter」的做法。
+  local buf_nums
+  if type(options.buffer_source) == "function" then
+    -- 外部来源可能给出已失效的 id，这里兜一层
+    buf_nums = vim.tbl_filter(api.nvim_buf_is_valid, options.buffer_source() or {})
+  else
+    buf_nums = utils.get_valid_buffers()
+  end
   local filter = options.custom_filter
   buf_nums = filter and apply_buffer_filter(buf_nums, filter) or buf_nums
   buf_nums = get_updated_buffers(buf_nums, state.custom_sort)

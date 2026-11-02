@@ -32,6 +32,7 @@
 ---@field public close_icon? string
 ---@field public close_command? string | function
 ---@field public custom_filter? fun(buf: number, bufnums: number[]): boolean
+---@field public buffer_source? fun(): number[] 外部提供本次渲染的 buffer 列表
 ---@field public left_mouse_command? string | function
 ---@field public right_mouse_command? string | function
 ---@field public middle_mouse_command? (string | function)?

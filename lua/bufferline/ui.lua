@@ -26,36 +26,32 @@ local sep_chars = constants.sep_chars
 local strwidth = vim.api.nvim_strwidth
 local padding = constants.padding
 
---- Per-render tab width override (set by M.tabline). nil = fall back to options.tab_size
-local render_tab_size = nil
---- Whether the current render forces equal-width tabs (set by M.tabline).
-local render_regular = nil
---- Buffer ids that get one extra column this render, so the tabs fill the
---- window exactly instead of leaving a growing gap before the right edge.
-local render_plus = nil
---- When true, non-current tabs drop their name, numbers, diagnostics and
---- padding and render as a compact icon-only tab. Set by M.tabline so a busy
---- tabline can keep every tab visible instead of hiding whole tabs.
-local render_compact = false
---- How much optional per-tab chrome to drop this render when the window (or a
---- sidebar offset) leaves too little width. Each step is leaner than the last:
---- 0 = everything, 1 = no close/modified slot, 2 = also no numbers, 3 = also
---- no name (all tabs icon-only but still equally wide).
-local render_trim = 0
---- When true, the current tab keeps its name in full while the other tabs are
---- squeezed into whatever width is left (like a browser tab strip). Set by the
---- flex layout; only ever used together with `render_tab_size`.
-local render_expand = false
+--- Layout for the current render (see bufferline.layout): the width of every
+--- tab, how much optional chrome to draw, and whether the focused tab grows to
+--- its full name. `nil` falls back to the plain `tab_size` option.
+---@type bufferline.Layout?
+local render_layout = nil
 
----Effective width for a single tab this render (base + fill remainder).
+---Width assigned to a tab by the current layout, if any. This is the width of
+---the padded name block, not the width of the whole tab: icons, numbers,
+---diagnostics and separators are drawn around it. Either a per-tab width
+---(`widths`) or one shared width (`size`) may be set.
 ---@param tab bufferline.TabElement?
 ---@return integer?
 local function tab_width(tab)
-  local base = render_tab_size
-  if base == nil then return nil end
-  if render_plus and tab and tab.id and render_plus[tab.id] then return base + 1 end
-  return base
+  if not render_layout then return nil end
+  if tab and tab.id and render_layout.widths then return render_layout.widths[tab.id] end
+  return render_layout.size
 end
+
+---Decoration level for this render: 0 = everything, 1 = no close/modified
+---slot, 2 = also no numbers, 3 = also no name. See bufferline.Layout.
+---@return integer
+local function trim_level() return render_layout and render_layout.trim or 0 end
+
+---Whether the focused tab is allowed to grow to its full name this render.
+---@return boolean
+local function expanding() return render_layout ~= nil and render_layout.expand == true end
 
 local components = {
   id = {
@@ -234,15 +230,16 @@ end
 ---@param length number
 ---@return bufferline.Segment?, bufferline.Segment?
 local function add_space(ctx, length)
-  -- Compact tabs have no room to spare, so they carry no padding at all.
-  if render_compact and not ctx.tab:current() then return end
+  -- Tabs stripped of their name have no room to spare, so they carry no
+  -- padding at all.
+  if trim_level() >= 3 and not ctx.tab:current() then return end
   local options = config.options
   local curr_hl = ctx.current_highlights
   local left_size, right_size = 0, 0
   local icon = options.buffer_close_icon
   -- The expanded current tab is sized by its own name, so it only carries a
   -- thin fixed padding instead of being padded up to the shared tab width.
-  if render_expand and ctx.tab:current() then
+  if expanding() and ctx.tab:current() then
     return pad({ left = { size = 1, hl = curr_hl.buffer }, right = { size = 1 } })
   end
   -- pad each tab smaller than the max tab size to make it consistent
@@ -256,7 +253,7 @@ local function add_space(ctx, length)
     -- give the odd remainder to the right so the tab always reaches base_size
     left_size, right_size = size + left_size, difference - size + right_size
   end
-  if not options.show_buffer_close_icons or render_trim >= 1 then
+  if not options.show_buffer_close_icons or trim_level() >= 1 then
     right_size = right_size > 0 and right_size - strwidth(icon) or right_size
     left_size = left_size + strwidth(icon)
   end
@@ -287,25 +284,17 @@ local function is_slant(style)
   return vim.tbl_contains({ sep_names.slant, sep_names.padded_slant, sep_names.slope, sep_names.padded_slope }, style)
 end
 
---- Resolve the effective tab width for a render.
---- `options.tab_size` may be a number, "auto" (fill the window), or a function.
---- `total_extra` is the sum over visible tabs of the width each tab spends
---- outside the padded name block (icons, numbers, diagnostics, separators).
+--- Width a single tab is given by `options.tab_size` when the tabline is not
+--- laid out by `bufferline.layout` (a fixed number or a custom function).
 --- @param options bufferline.Options
 --- @param available_width integer
 --- @param count integer number of visible tabs
---- @param total_extra? integer
---- @return integer width
---- @return boolean regular whether tabs should be forced to equal width
-local function resolve_tab_size(options, available_width, count, total_extra)
+--- @return integer? width
+local function resolve_tab_size(options, available_width, count)
   local tab_size = options.tab_size
-  if type(tab_size) == "function" then return tab_size(available_width, count), true end
-  if tab_size ~= "auto" then return tab_size, options.enforce_regular_tabs end
-  if count <= 0 then return options.max_name_length, true end
-  local size = math.floor((available_width - (total_extra or 0)) / count)
-  if options.min_tab_size and options.min_tab_size > 0 then size = math.max(size, options.min_tab_size) end
-  if options.max_tab_size and options.max_tab_size > 0 then size = math.min(size, options.max_tab_size) end
-  return math.max(size, 1), true
+  if type(tab_size) == "function" then return tab_size(available_width, count) end
+  if type(tab_size) == "number" then return tab_size end
+  return nil
 end
 
 --- "▍" "░"
@@ -442,14 +431,15 @@ local function get_max_length(context)
 
   -- The focused tab shows its name in full, like a browser tab; the other tabs
   -- absorb the width difference instead of every tab being truncated alike.
-  if render_expand and element:current() then return math.max(strwidth(element.name), 1) end
+  if expanding() and element:current() then return math.max(strwidth(element.name), 1) end
 
-  local tab_size = tab_width(context.tab)
-  if not tab_size then tab_size = type(options.tab_size) == "number" and options.tab_size or options.max_name_length end
-  local enforce = render_regular
-  if enforce == nil then
-    enforce = options.enforce_regular_tabs or options.tab_size == "auto" or type(options.tab_size) == "function"
-  end
+  local assigned = tab_width(context.tab)
+  local tab_size = assigned
+    or (type(options.tab_size) == "number" and options.tab_size or options.max_name_length)
+  local enforce = assigned ~= nil
+    or options.enforce_regular_tabs
+    or options.tab_size == "auto"
+    or type(options.tab_size) == "function"
 
   local autosize = not options.truncate_names and not enforce
   local name_size = strwidth(context.tab.name)
@@ -460,7 +450,7 @@ local function get_max_length(context)
   -- padded and prefixed with a file icon
   -- The close/modified slot is the first thing dropped when space is tight, so
   -- do not reserve room for it then.
-  local button = render_trim >= 1 and 0 or button_width(options)
+  local button = trim_level() >= 1 and 0 or button_width(options)
   return tab_size - button - icon_size - padding_size
 end
 
@@ -559,10 +549,10 @@ function M.element(current_state, element)
     is_picking = current_state.is_picking,
   })
 
-  -- Trimmed tail (see render_trim) eventually strips the name from every tab,
-  -- current one included, so all tabs keep the same width.
-  local compact = (render_compact and not element:current()) or render_trim >= 3
-  local trim = render_trim
+  -- The last decoration level strips the name from the tabs that are not
+  -- focused, so a busy tabline still shows where you are.
+  local trim = trim_level()
+  local compact = trim >= 3 and not element:current()
   local duplicate_prefix = not compact and duplicates.component(ctx) or nil
   local group_item = element.group and groups.component(ctx) or nil
   local diagnostic = not compact and diagnostics.component(ctx) or nil
@@ -777,9 +767,9 @@ function M.tabline(items, tab_indicators)
 
   local before, current, after = get_sections(items)
   local segments, marker, visible_components
-  if render_tab_size ~= nil then
-    -- Flex mode: tab widths were fitted to the window, so render every tab in
-    -- order and never drop tabs to make room (the legacy truncate behaviour).
+  if M.has_layout() then
+    -- Layout mode: the tab widths were fitted to the window, so render every
+    -- tab in order and never drop tabs to make room (legacy truncate behaviour).
     visible_components = utils.merge_lists(before.items, current.items, after.items)
     segments = {}
     for index, item in ipairs(visible_components) do
@@ -835,22 +825,15 @@ M.components = components
 ---Resolve the effective tab width for a given width/tab-count. Exposed for tests.
 M.resolve_tab_size = resolve_tab_size
 
----Set the tab width used while building components for the current render.
----Pass `nil` to fall back to `options.tab_size`.
----@param size integer?
----@param regular boolean?
----@param plus table<integer, boolean>? buffer ids that get one extra column
----@param compact boolean? render non-current tabs in compact icon-only mode
----@param trim integer? optional chrome to drop (0 = none, 1 = no close slot, 2 = also no numbers, 3 = also no names)
----@param expand boolean? let the current tab grow to its full name width
-function M.set_render_tab_size(size, regular, plus, compact, trim, expand)
-  render_tab_size = size
-  render_regular = regular
-  render_plus = plus
-  render_compact = compact or false
-  render_trim = trim or 0
-  render_expand = expand or false
-end
+---Set the layout used while building components for the current render.
+---`nil` falls back to `options.tab_size`.
+---@param layout bufferline.Layout?
+function M.set_render_layout(layout) render_layout = layout end
+
+---Whether the current render sizes tabs from a layout (and therefore never
+---needs to drop tabs to make the tabline fit).
+---@return boolean
+function M.has_layout() return render_layout ~= nil end
 
 if utils.is_test() then
   M.to_tabline_str = to_tabline_str
