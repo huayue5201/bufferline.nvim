@@ -1,4 +1,4 @@
-[![CI](https://github.com/akinsho/bufferline.nvim/actions/workflows/ci.yaml/badge.svg)](https://github.com/akinsho/bufferline.nvim/actions/workflows/ci.yaml)
+[![CI](https://github.com/huayue5201/bufferline.nvim/actions/workflows/ci.yaml/badge.svg)](https://github.com/huayue5201/bufferline.nvim/actions/workflows/ci.yaml)
 
 <h1 align="center">
   bufferline.nvim
@@ -18,6 +18,7 @@
   - [Alternate styling](#alternate-styling)
   - [Hover events](#hover-events)
   - [Underline indicator](#underline-indicator)
+  - [Tab sizing / auto layout](#tab-sizing--auto-layout)
   - [Tabpages](#tabpages)
   - [LSP indicators](#lsp-indicators)
   - [Groups](#groups)
@@ -37,6 +38,9 @@
 This plugin shamelessly attempts to emulate the aesthetics of GUI text editors/Doom Emacs.
 It was inspired by a screenshot of DOOM Emacs using [centaur tabs](https://github.com/ema2159/centaur-tabs).
 
+This fork is maintained at [huayue5201/bufferline.nvim](https://github.com/huayue5201/bufferline.nvim)
+and is based on [akinsho/bufferline.nvim](https://github.com/akinsho/bufferline.nvim).
+
 ## Requirements
 
 - Neovim 0.8+
@@ -52,10 +56,10 @@ If you'd like to use an older version of the plugin compatible with nvim-0.6.1 a
 
 ```lua
 -- using packer.nvim
-use {'akinsho/bufferline.nvim', tag = "*", requires = 'nvim-tree/nvim-web-devicons'}
+use {'huayue5201/bufferline.nvim', tag = "*", requires = 'nvim-tree/nvim-web-devicons'}
 
 -- using lazy.nvim
-{'akinsho/bufferline.nvim', version = "*", dependencies = 'nvim-tree/nvim-web-devicons'}
+{'huayue5201/bufferline.nvim', version = "*", dependencies = 'nvim-tree/nvim-web-devicons'}
 ```
 
 **Vimscript**
@@ -63,7 +67,7 @@ use {'akinsho/bufferline.nvim', tag = "*", requires = 'nvim-tree/nvim-web-devico
 ```vim
 Plug 'nvim-tree/nvim-web-devicons' " Recommended (for coloured icons)
 " Plug 'ryanoasis/vim-devicons' Icons without colours
-Plug 'akinsho/bufferline.nvim', { 'tag': '*' }
+Plug 'huayue5201/bufferline.nvim', { 'tag': '*' }
 ```
 
 ## Usage
@@ -137,6 +141,36 @@ see `:help bufferline-hover-events` for more information on configuration
 
 **NOTE**: as with the above your mileage will vary based on your terminal emulator. The screenshot above was achieved using kitty nightly (as of August 2022), with increased
 underline thickness and an increased underline position so it sits further from the text
+
+---
+
+#### Tab sizing / auto layout
+
+`tab_size` accepts a number (a fixed width in columns, default `18`), a
+function `fun(available_width, count): integer`, or the string `"auto"`.
+
+With `tab_size = "auto"` the bar fills the available width exactly: the focused
+tab gets its full name (browser-tab style) and the remaining tabs split the
+rest evenly. Optional decorations are dropped progressively before any tab is
+allowed to collapse: level 0 keeps everything, level 1 drops the close slot,
+level 2 drops numbers, level 3 drops names, and level 4 drops icons and
+separators. A last-resort layout keeps at least one column per tab.
+
+`min_tab_size` and `max_tab_size` bound each tab's width in the `"auto"` layout
+(`0` means unbounded). Numeric or function `tab_size` values keep the classic
+fixed-width layout, where tabs are truncated when they do not fit.
+
+```lua
+require("bufferline").setup{
+  options = {
+    tab_size = "auto",
+    min_tab_size = 12,
+    max_tab_size = 40,
+  },
+}
+```
+
+see `:help bufferline-tab-sizing` for details
 
 ---
 
@@ -256,6 +290,10 @@ Currently this can be specified as either a string of `buffer_id` | `ordinal` or
 
 see `:help bufferline-numbers` for more details
 
+`BufferLineGoToBuffer <n>` always uses the ordinal in the full component list
+(the same number shown by the `numbers` option), so pinned, collapsed or
+overflowed tabs do not shift the meaning of `<n>`.
+
 ---
 
 #### Unique names
@@ -275,6 +313,13 @@ see `:help bufferline-numbers` for more details
 ![re-order buffers](https://user-images.githubusercontent.com/22454918/111993463-91643a80-8b0e-11eb-87f0-26acfe92c021.gif)
 
 This order can be persisted between sessions (enabled by default).
+
+`BufferLineCycleNext`/`BufferLineCyclePrev` can enter buffers inside closed
+groups (the group is expanded) and skip group markers. Switching to a buffer
+that is already open restores its previous cursor line instead of jumping to
+the first line. The tabline also redraws automatically on `BufAdd`,
+`BufDelete`, `TabEnter` and `TabClosed`, so no manual `:redrawtabline` is
+needed.
 
 ---
 

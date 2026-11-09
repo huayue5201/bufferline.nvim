@@ -1,4 +1,4 @@
-*bufferline.nvim*   For Neovim version 0.5+   Last change: 2021 August 20
+*bufferline.nvim*   For Neovim version 0.8+   Last change: 2026 November 09
 
 A snazzy bufferline for neovim written in lua
 
@@ -11,6 +11,7 @@ CONTENTS                                      *bufferline*
 Introduction...........................: |bufferline-introduction|
 Usage..................................: |bufferline-usage|
 Configuration..........................: |bufferline-configuration|
+Tab sizing.............................: |bufferline-tab-sizing|
 Hover Events...........................: |bufferline-hover-events|
 Styling................................: |bufferline-styling|
 Style Presets..........................: |bufferline-style-presets|
@@ -59,6 +60,8 @@ this option entirely at your discretion. >vim
     " In your init.vim or init.lua
     lua require"bufferline".setup()
 <
+The tabline redraws automatically on `BufAdd`, `BufDelete`, `TabEnter` and
+`TabClosed`, so there is no need to call `:redrawtabline` manually.
 ==============================================================================
 CONFIGURATION					     *bufferline-configuration*
 
@@ -98,7 +101,9 @@ The available configuration are:
             max_name_length = 18,
             max_prefix_length = 15, -- prefix used when a buffer is de-duplicated
             truncate_names = true, -- whether or not tab names should be truncated
-            tab_size = 18,
+            tab_size = 18, -- columns | "auto" | function(available_width, count)
+            min_tab_size = 0, -- minimum width per tab in the "auto" layout (0 = unbounded)
+            max_tab_size = 0, -- maximum width per tab in the "auto" layout (0 = unbounded)
             diagnostics = false | "nvim_lsp" | "coc",
             diagnostics_update_in_insert = false, -- only applies to coc
             diagnostics_update_on_event = true, -- use nvim's diagnostic handler
@@ -178,6 +183,39 @@ The available configuration are:
     }
 <
 ==============================================================================
+TAB SIZING                                            *bufferline-tab-sizing*
+
+`tab_size` controls the width of each tab. It accepts:
+
+* a number - a fixed width in columns (default `18`)
+* a function - `fun(available_width, count): integer`, returning the width
+  for each tab from the total available width and the number of visible tabs
+* the string `"auto"` - fit the whole bar to the available width
+
+With `tab_size = "auto"` the focused tab is given its full name (browser-tab
+style) and the remaining tabs split the rest of the bar evenly. Before any tab
+is allowed to collapse, optional decorations are dropped in stages:
+
+    0. everything (default)
+    1. no close slot
+    2. no numbers
+    3. no names
+    4. no icons or separators
+
+If even level 4 cannot fill the bar, a last-resort layout keeps at least one
+column per tab. `min_tab_size` and `max_tab_size` bound the per-tab width used
+by the "auto" layout; `0` means unbounded. A numeric or function `tab_size`
+keeps the classic fixed-width layout, where tabs are truncated when they do
+not fit. See also |bufferline-regular-tabs|.
+
+>lua
+    options = {
+        tab_size = "auto",
+        min_tab_size = 12,
+        max_tab_size = 40,
+    }
+<
+==============================================================================
 HOVER EVENTS                                           *bufferline-hover-events*
 
 You can configure bufferline to respond to hover events if you are using
@@ -214,6 +252,10 @@ You can change the appearance of the bufferline separators by setting the
 * finally you can pass in a custom list containing 2 characters which will be
   used as the separators e.g. `{"|", "|"}`, the first is the left and the
   second is the right separator
+
+For the non-slanted separators (`thin`, `thick` and custom lists) the
+separator cell is painted on the fill background, so no coloured band is left
+sticking out past the separator glyph.
 
 ==============================================================================
 STYLE PRESETS                                        *bufferline-style-presets*
@@ -565,6 +607,10 @@ are:
 
 These commands apply the configured `close_command` to each of the corresponding buffers.
 
+`BufferLineGoToBuffer <n>` jumps to the buffer at ordinal `<n>` in the full
+component list (the same number shown in the tabline). See
+|bufferline-mappings|.
+
 ==============================================================================
 CUSTOM-FUNCTIONS                                     *bufferline-functions*
 
@@ -713,16 +759,20 @@ MAPPINGS                                               *bufferline-mappings*
 
 `BufferLineGoToBuffer`
 
-You can select a buffer by it's visible position in the bufferline using the `BufferLineGoToBuffer`
-command. This means that if you have 60 buffers open but only 7 visible in the bufferline
-using `BufferLineGoToBuffer 4` will go to the 4th visible buffer but not necessarily the 5th in the
-absolute list of open buffers. To select the last visible buffer, you can also use `BufferLineGoToBuffer -1`.
+You can select a buffer by its ordinal in the full component list using the
+`BufferLineGoToBuffer` command. The ordinal is the same number shown by the
+`numbers` option, so pinned, collapsed-group and overflowed tabs do not shift
+the meaning of `<n>`. For example, with 60 buffers open and only 7 visible,
+`BufferLineGoToBuffer 4` opens the buffer whose ordinal is 4 in the full list,
+not necessarily the 4th visible one. To select the last buffer in the list,
+use `BufferLineGoToBuffer -1`.
 >
 
   <- (30) | buf31 | buf32 | buf33 | buf34 | buf35 | buf36 | buf37 (24) ->
 <
 
-Using `BufferLineGoToBuffer 4` will open `buf34` as it is the 4th visible buffer.
+Using `BufferLineGoToBuffer 4` opens the buffer whose ordinal is 4 in the full
+list, even if an earlier buffer is hidden inside a closed group.
 
 This can then be mapped using
 
@@ -771,6 +821,9 @@ A few of this plugins commands can be mapped for ease of use. >vim
     " These commands will navigate through buffers in order
     " regardless of which mode you are using  e.g. if you change
     " the order of buffers :bnext and :bprevious will not respect the custom ordering
+    " Cycling can enter buffers inside closed groups (the group is expanded)
+    " and skips group markers. Switching to an already-open buffer restores
+    " its previous cursor line instead of jumping to line 1.
     nnoremap <silent>[b :BufferLineCycleNext<CR>
     nnoremap <silent>b] :BufferLineCyclePrev<CR>
 
@@ -1230,7 +1283,7 @@ so they can be more easily overriden if that is the user's preference.
 ISSUES							*bufferline-issues*
 
 Please raise any issues you encounter whilst using this plugin at:
-https://github.com/akinsho/bufferline.lua/issues
+https://github.com/huayue5201/bufferline.nvim/issues
 
 
 vim:tw=78:sw=4:ft=help:norl:
